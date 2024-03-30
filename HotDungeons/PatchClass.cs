@@ -85,6 +85,8 @@ namespace HotDungeons
             }
 
             Mod.State = ModState.Running;
+
+            DungeonManager.Initialize(Settings.DungeonCheckInterval, Settings.MaxBonusXp);
         }
 
         public void Shutdown()
@@ -103,18 +105,6 @@ namespace HotDungeons
         #region Patches
 
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(WorldManager), nameof(WorldManager.Open), new Type[] { typeof(Player) })]
-        public static bool PreOpen(Player player)
-        {
-            DungeonManager.Initialize();
-            //Return false to override
-            //return false;
-
-            //Return true to execute original
-            return true;
-        }
-
-        [HarmonyPrefix]
         [HarmonyPatch(typeof(Landblock), "ProcessPendingWorldObjectAdditionsAndRemovals")]
         public static bool PreProcessPendingWorldObjectAdditionsAndRemovals(ref Landblock __instance)
         {
@@ -129,8 +119,13 @@ namespace HotDungeons
                         __instance.players.Add(player);
                         var currentLb = $"{__instance.Id.Raw:X8}".Substring(0, 4);
 
-                        if (DungeonManager.HasDungeon(currentLb))
-                            DungeonManager.AddDungeonPlayer(currentLb, player);
+                        if (__instance.InnerRealmInfo == null)
+                        {
+                            if (DungeonManager.HasDungeon(currentLb))
+                                DungeonManager.AddDungeonPlayer(currentLb, player);
+                        }
+
+
                     }
                     else if (kvp.Value is Creature creature)
                         __instance.sortedCreaturesByNextTick.AddLast(creature);
@@ -157,8 +152,12 @@ namespace HotDungeons
                             __instance.players.Remove(player);
                             var currentLb = $"{__instance.Id.Raw:X8}".Substring(0, 4);
 
-                            if (DungeonManager.HasDungeon(currentLb))
-                                DungeonManager.RemoveDungeonPlayer(currentLb, player);
+                            if (__instance.InnerRealmInfo == null)
+                            {
+                                if (DungeonManager.HasDungeon(currentLb))
+                                    DungeonManager.RemoveDungeonPlayer(currentLb, player);
+                            }
+
                         }
                         else if (wo is Creature creature)
                             __instance.sortedCreaturesByNextTick.Remove(creature);
@@ -182,6 +181,82 @@ namespace HotDungeons
 
             return false;
         }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(LandblockManager), "TickMultiThreadedWork")]
+        public static bool PreTickMultiThreadedWork()
+        {
+            DungeonManager.Tick();
+            return true;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
+        public static bool PreOnDeath_GrantXP(ref Creature __instance)
+        {
+            if (__instance is Player && __instance.PlayerKillerStatus == PlayerKillerStatus.PKLite)
+                return false;
+
+            var totalHealth = __instance.DamageHistory.TotalHealth;
+
+            if (totalHealth == 0)
+                return false;
+
+            foreach (var kvp in __instance.DamageHistory.TotalDamage)
+            {
+                var damager = kvp.Value.TryGetAttacker();
+
+                var playerDamager = damager as Player;
+
+                if (playerDamager == null && kvp.Value.PetOwner != null)
+                    playerDamager = kvp.Value.TryGetPetOwner();
+
+                if (playerDamager == null)
+                    continue;
+
+                var totalDamage = kvp.Value.TotalDamage;
+
+                var damagePercent = totalDamage / totalHealth;
+
+                var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
+
+                if (__instance.CurrentLandblock != null)
+                    DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
+
+                var xp = (double)(__instance.XpOverride ?? 0);
+
+                if (DungeonManager.CurrentHotSpot?.Landblock == currentLb)
+                    xp *= DungeonManager.CurrentHotSpot.BonuxXp;
+
+                var totalXP = (xp) * damagePercent;
+
+                playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
+
+                // handle luminance
+                if (__instance.LuminanceAward != null)
+                {
+                    var totalLuminance = (long)Math.Round(__instance.LuminanceAward.Value * damagePercent);
+                    playerDamager.EarnLuminance(totalLuminance, XpType.Kill);
+                }
+            }
+
+            return false;
+        }
+
+
+
+        [HarmonyPostfix]
+        [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
+        public static void PostOnDeath_GrantXP(ref Creature __instance)
+        {
+            if (__instance.CurrentLandblock != null)
+            {
+                var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
+
+                DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
+            }
+        }
+
         #endregion
     }
 
