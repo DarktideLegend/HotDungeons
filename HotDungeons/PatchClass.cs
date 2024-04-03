@@ -1,4 +1,6 @@
 ﻿using ACE.Entity;
+using ACE.Entity.Enum.Properties;
+using ACE.Entity.Models;
 using ACE.Server.Entity;
 using ACE.Server.Entity.Actions;
 using ACE.Server.Managers;
@@ -86,7 +88,9 @@ namespace HotDungeons
 
             Mod.State = ModState.Running;
 
+            DungeonRepository.Initialize();
             DungeonManager.Initialize(Settings.DungeonCheckInterval, Settings.MaxBonusXp);
+            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp);
         }
 
         public void Shutdown()
@@ -119,11 +123,11 @@ namespace HotDungeons
                         __instance.players.Add(player);
                         var currentLb = $"{__instance.Id.Raw:X8}".Substring(0, 4);
 
-                        if (__instance.InnerRealmInfo == null)
-                        {
-                            if (DungeonManager.HasDungeon(currentLb))
-                                DungeonManager.AddDungeonPlayer(currentLb, player);
-                        }
+                        if (RiftManager.HasActiveRift(currentLb))
+                            RiftManager.AddRiftPlayer(currentLb, player);
+
+                        if (DungeonManager.HasDungeon(currentLb))
+                            DungeonManager.AddDungeonPlayer(currentLb, player);
 
 
                     }
@@ -152,11 +156,11 @@ namespace HotDungeons
                             __instance.players.Remove(player);
                             var currentLb = $"{__instance.Id.Raw:X8}".Substring(0, 4);
 
-                            if (__instance.InnerRealmInfo == null)
-                            {
-                                if (DungeonManager.HasDungeon(currentLb))
-                                    DungeonManager.RemoveDungeonPlayer(currentLb, player);
-                            }
+                            if (RiftManager.HasActiveRift(currentLb))
+                                RiftManager.RemoveRiftPlayer(currentLb, player);
+
+                            if (DungeonManager.HasDungeon(currentLb))
+                                DungeonManager.RemoveDungeonPlayer(currentLb, player);
 
                         }
                         else if (wo is Creature creature)
@@ -187,6 +191,7 @@ namespace HotDungeons
         public static bool PreTickMultiThreadedWork()
         {
             DungeonManager.Tick();
+            RiftManager.Tick();
             return true;
         }
 
@@ -243,8 +248,6 @@ namespace HotDungeons
             return false;
         }
 
-
-
         [HarmonyPostfix]
         [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
         public static void PostOnDeath_GrantXP(ref Creature __instance)
@@ -256,6 +259,165 @@ namespace HotDungeons
                 DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
             }
         }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Player), nameof(Player.Teleport), new Type[] { typeof(Position), typeof(bool), typeof(bool) })]
+        public static bool PreTeleport(Position _newPosition, bool teleportingFromInstance, bool fromPortal, ref Player __instance)
+        {
+            var newLbRaw = _newPosition.LandblockId.Raw;
+            var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
+
+            if (!RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+                return true;
+
+            if (activeRift.Instance == 0)
+                RiftManager.CreateRiftInstance(__instance, _newPosition, activeRift);
+
+            var currentLbRaw = __instance.Location.LandblockId.Raw;
+            var currentLb = $"{currentLbRaw:X8}".Substring(0, 4);
+
+            RiftManager.TryGetActiveRift(currentLb, out Rift currentRift);
+
+            var pos = new Position(_newPosition);
+            pos.Instance = activeRift.Instance;
+
+            _newPosition.Instance = pos.Instance;
+
+            Position.ParseInstanceID(__instance.Location.Instance, out var isTemporaryRuleset, out ushort _a, out ushort _b);
+            if (isTemporaryRuleset)
+            {
+                if (!teleportingFromInstance && __instance.ExitInstance())
+                    return false;
+            }
+
+
+            if (!__instance.ValidatePlayerRealmPosition(_newPosition))
+            {
+                if (__instance.IsAdmin)
+                {
+                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Admin bypassing realm restriction.", ChatMessageType.System));
+                }
+                else
+                {
+                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Unable to teleport to that realm.", ChatMessageType.System));
+                    return false;
+                }
+            }
+
+            var newPosition = new Position(_newPosition);
+            //newPosition.PositionZ += 0.005f;
+            newPosition.PositionZ += 0.005f * (__instance.ObjScale ?? 1.0f);
+
+            if (_newPosition.Instance != __instance.Location.Instance)
+            {
+                if (!__instance.OnTransitionToNewRealm(__instance.Location.RealmID, _newPosition.RealmID, newPosition))
+                    return false;
+            }
+
+            //Console.WriteLine($"{Name}.Teleport() - Sending to {newPosition.ToLOCString()}");
+
+            // Check currentFogColor set for player. If LandblockManager.GlobalFogColor is set, don't bother checking, dungeons didn't clear like this on retail worlds.
+            // if not clear, reset to clear before portaling in case portaling to dungeon (no current way to fast check unloaded landblock for IsDungeon or current FogColor)
+            // client doesn't respond to any change inside dungeons, and only queues for change if in dungeon, executing change upon next teleport
+            // so if we delay teleport long enough to ensure clear arrives before teleport, we don't get fog carrying over into dungeon.
+
+            var player = __instance;
+
+            if (__instance.currentFogColor.HasValue && __instance.currentFogColor != EnvironChangeType.Clear && !LandblockManager.GlobalFogColor.HasValue)
+            {
+                var delayTelport = new ActionChain();
+                delayTelport.AddAction(player, () => player.ClearFogColor());
+                delayTelport.AddDelaySeconds(1);
+                delayTelport.AddAction(player, () => WorldManager.ThreadSafeTeleport(player, _newPosition, teleportingFromInstance));
+
+                delayTelport.EnqueueChain();
+
+                return false;
+            }
+
+            __instance.Teleporting = true;
+            __instance.LastTeleportTime = DateTime.UtcNow;
+            __instance.LastTeleportStartTimestamp = Time.GetUnixTime();
+
+            if (fromPortal)
+                __instance.LastPortalTeleportTimestamp = __instance.LastTeleportStartTimestamp;
+
+            __instance.Session.Network.EnqueueSend(new GameMessagePlayerTeleport(__instance));
+
+            // load quickly, but player can load into landblock before server is finished loading
+
+            // send a "fake" update position to get the client to start loading asap,
+            // also might fix some decal bugs
+            var prevLoc = __instance.Location;
+            __instance.Location = newPosition;
+            __instance.SendUpdatePosition();
+            __instance.Location = prevLoc;
+
+            __instance.DoTeleportPhysicsStateChanges();
+
+            // force out of hotspots
+            __instance.PhysicsObj.report_collision_end(true);
+
+            if (__instance.UnderLifestoneProtection)
+                __instance.LifestoneProtectionDispel();
+
+            __instance.HandlePreTeleportVisibility(newPosition);
+
+            __instance.UpdatePlayerPosition(new Position(newPosition), true);
+
+            return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Player), "OnTransitionToNewRealm", new Type[] { typeof(ushort), typeof(ushort), typeof(Position) })]
+        public static bool PreOnTransitionToNewRealm(ushort prevRealmId, ushort newRealmId, Position newLocation, ref Player __instance, ref bool __result)
+        {
+            var prevrealm = RealmManager.GetRealm(prevRealmId);
+            var newRealm = RealmManager.GetRealm(newRealmId);
+
+            if (newLocation.IsEphemeralRealm && !__instance.Location.IsEphemeralRealm)
+            {
+                __instance.SetPosition(PositionType.EphemeralRealmExitTo, new Position(__instance.Location));
+                __instance.SetPosition(PositionType.EphemeralRealmLastEnteredDrop, new Position(newLocation));
+            }
+            else if (!newLocation.IsEphemeralRealm)
+            {
+                __instance.SetPosition(PositionType.EphemeralRealmExitTo, null);
+                __instance.SetPosition(PositionType.EphemeralRealmLastEnteredDrop, null);
+            }
+
+            var pk = false;
+            if (newLocation.IsEphemeralRealm)
+            {
+                var lb = LandblockManager.GetLandblockUnsafe(newLocation.LandblockId, newLocation.Instance);
+                if (lb.RealmHelpers.IsDuel || lb.RealmHelpers.IsPkOnly)
+                    pk = true;
+            }
+
+            if (newRealm.StandardRules.GetProperty(RealmPropertyBool.IsPKOnly))
+                pk = true;
+
+            __instance.PlayerKillerStatus = pk ? PlayerKillerStatus.PK : PlayerKillerStatus.NPK;
+            __instance.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(__instance, PropertyInt.PlayerKillerStatus, (int)__instance.PlayerKillerStatus));
+
+            if (newLocation.IsEphemeralRealm)
+                __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Entering ephemeral instance. Type /realm-info to view realm properties.", ChatMessageType.System));
+            else if (__instance.Location.IsEphemeralRealm && !newLocation.IsEphemeralRealm)
+                __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Leaving instance and returning to realm {newRealm.Realm.Name}.", ChatMessageType.System));
+            else
+            {
+                if (prevrealm.Realm.Id != __instance.HomeRealm)
+                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"You are temporarily leaving your home realm. Some actions may be restricted and your corpse will appear at your hideout if you die.", ChatMessageType.System));
+                else if (newRealm.Realm.Id == __instance.HomeRealm)
+                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Returning to home realm.", ChatMessageType.System));
+                else
+                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Switching from realm {prevrealm.Realm.Name} to {newRealm.Realm.Name}.", ChatMessageType.System));
+            }
+            __result = true;
+            return false;
+        }
+
+
 
         #endregion
     }

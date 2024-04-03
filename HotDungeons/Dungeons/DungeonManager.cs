@@ -1,5 +1,6 @@
 ﻿using ACE.Server.Managers;
 using ACE.Server.Network.GameMessages.Messages;
+using HotDungeons.Dungeons.Entity;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -9,23 +10,19 @@ using System.Threading.Tasks;
 
 namespace HotDungeons.Dungeons
 {
-    internal class DungeonLandblock
+    internal class Dungeon: DungeonBase
     {
-        public string Landblock { get; set; }
-        public string Name { get; set; }
-        public string Coords { get; set; }
+
         public int TotalXpEarned { get; set; } = 0;
 
         public double BonuxXp { get; set; } = 1.0f;
 
-        public DungeonLandblock(string landblock, string name, string coords)
+        public Dungeon(string landblock, string name, string coords) : base(landblock, name, coords) 
         {
             Landblock = landblock;
             Name = name;
             Coords = coords;
         }
-
-        public Dictionary<uint, Player> Players { get; set; } = new Dictionary<uint, Player>();
 
         internal void AddTotalXp(int xpOverride)
         {
@@ -35,17 +32,16 @@ namespace HotDungeons.Dungeons
 
     internal class DungeonManager
     {
-        private static string CsvFile = "dungeon_ids.csv";
 
         private static readonly object lockObject = new object();
 
-        private static Dictionary<string, DungeonLandblock> Landblocks = new Dictionary<string, DungeonLandblock>();
+        private static Dictionary<string, Dungeon> Dungeons = new Dictionary<string, Dungeon>();
 
-        private static Dictionary<string, DungeonLandblock> PotentialHotspotCandidate = new Dictionary<string, DungeonLandblock>();
+        private static Dictionary<string, Dungeon> PotentialHotspotCandidate = new Dictionary<string, Dungeon>();
 
         private static float MaxBonusXp { get; set; }
 
-        public static DungeonLandblock? CurrentHotSpot { get; private set; }
+        public static Dungeon? CurrentHotSpot { get; private set; }
 
         private static TimeSpan ElectorInterval { get; set; }
 
@@ -53,13 +49,10 @@ namespace HotDungeons.Dungeons
 
         public static void Initialize(uint interval, float bonuxXpModifier)
         {
-            if (Landblocks.Count == 0)
-            {
-                ImportDungeonsFromCsv();
-                ElectorInterval = TimeSpan.FromMinutes(interval);
-                MaxBonusXp = bonuxXpModifier;
-            }
+            ElectorInterval = TimeSpan.FromMinutes(interval);
+            MaxBonusXp = bonuxXpModifier;
         }
+
 
         public static void Tick()
         {
@@ -104,85 +97,62 @@ namespace HotDungeons.Dungeons
             }
         }
 
-        public static void ImportDungeonsFromCsv()
-        {
-            string csvFilePath = Path.Combine(Mod.ModPath, CsvFile);
-
-            if (!File.Exists(csvFilePath))
-            {
-                throw new Exception("Failed to read dungeon_ids.csv");
-            }
-
-            using (StreamReader reader = new StreamReader(csvFilePath))
-            {
-                string line;
-                while ((line = reader.ReadLine()) != null)
-                {
-                    string[] parts = line.Split(';');
-
-                    string landblock = parts[0];
-                    string name = parts[1];
-                    string coords = parts[2];
-
-                    if (coords.Length == 2)
-                        coords = "";
-                    else if (coords.Length > 2 && coords.Substring(coords.Length - 2) == ",,")
-                    {
-                        coords = coords.Substring(0, coords.Length - 2);
-                    }
-
-                    DungeonLandblock dungeon = new DungeonLandblock(landblock, name, coords);
-
-                    Landblocks[landblock] = dungeon;
-                }
-            }
-        }
         public static void RemoveDungeonPlayer(string lb, Player player)
         {
             var guid = player.Guid.Full;
 
-            if (Landblocks.TryGetValue(lb, out DungeonLandblock currentDungeon))
-                if (currentDungeon.Players.ContainsKey(guid))
+            if (DungeonRepository.Landblocks.TryGetValue(lb, out DungeonLandblock currentDungeon) && Dungeons.TryGetValue(lb, out Dungeon dungeon))
+            {
+                if (dungeon.Players.ContainsKey(guid))
                 {
-                    currentDungeon.Players.Remove(guid);
-                    ModManager.Log($"Removed {player.Name} from {currentDungeon.Name}");
+                    dungeon.Players.Remove(guid);
+                    ModManager.Log($"Removed {player.Name} from {dungeon.Name}");
                 }
+            } 
         }
 
         public static void AddDungeonPlayer(string nextLb, Player player)
         {
             var guid = player.Guid.Full;
 
-            if (Landblocks.TryGetValue(nextLb, out DungeonLandblock nextDungeon))
-                if (!nextDungeon.Players.ContainsKey(guid))
+            if (DungeonRepository.Landblocks.TryGetValue(nextLb, out DungeonLandblock nextDungeon) && Dungeons.TryGetValue(nextLb, out Dungeon dungeon))
+            {
+                if (!dungeon.Players.ContainsKey(guid))
                 {
-                    nextDungeon.Players.TryAdd(guid, player);
-                    ModManager.Log($"Added {player.Name} to {nextDungeon.Name}");
+                    dungeon.Players.TryAdd(guid, player);
+                    ModManager.Log($"Added {player.Name} to {dungeon.Name}");
                 }
+            }
         }
 
         public static bool HasDungeon(string lb)
         {
-            return Landblocks.ContainsKey(lb);
+            return DungeonRepository.Landblocks.ContainsKey(lb);
         }
-
-
 
         internal static void ProcessCreaturesDeath(string currentLb, int xpOverride)
         {
-            if (Landblocks.TryGetValue(currentLb, out DungeonLandblock currentDungeon))
+            if (RiftManager.HasRift(currentLb))
+                return;
+
+            if (DungeonRepository.Landblocks.TryGetValue(currentLb, out DungeonLandblock currentDungeon))
             {
-                if (CurrentHotSpot == currentDungeon)
+                if (CurrentHotSpot == null)
+                    return;
+
+                if (CurrentHotSpot.Name == currentDungeon.Name)
                     return;
 
                 lock (lockObject)
                 {
-                    currentDungeon.AddTotalXp(xpOverride);
 
-                    if (!PotentialHotspotCandidate.ContainsKey(currentLb))
+                    if (!PotentialHotspotCandidate.TryGetValue(currentLb, out Dungeon dungeon))
                     {
-                        PotentialHotspotCandidate.TryAdd(currentLb, currentDungeon);
-                    }
+                        var newDungeon = new Dungeon(currentDungeon.Landblock, currentDungeon.Name, currentDungeon.Coords);
+                        newDungeon.AddTotalXp(xpOverride);
+                        PotentialHotspotCandidate.TryAdd(currentLb, newDungeon);
+                    } else 
+                        dungeon.AddTotalXp(xpOverride);    
                 }
             }
         }

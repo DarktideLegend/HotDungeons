@@ -18,6 +18,7 @@
 		<None Remove=".template.config\**" />
 	</ItemGroup>
 
+
 	<PropertyGroup>
 		<PublicizeAll>true</PublicizeAll>
 	</PropertyGroup>
@@ -40,31 +41,30 @@
 
 	<ItemGroup>
 		<Reference Include="ACE.Adapter">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Adapter.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Adapter.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="ACE.Common">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Common.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Common.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="ACE.Database">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Database.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Database.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="ACE.DatLoader">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.DatLoader.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.DatLoader.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="ACE.Entity">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Entity.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Entity.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 		<Reference Include="ACE.Server">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Server.dll</HintPath>
-			<Private>False</Private>
+		  <HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Server.dll</HintPath>
 		</Reference>
 		<Reference Include="Microsoft.EntityFrameworkCore">
-			<HintPath>C:\Users\node_\projects\ACERealms\Source\ACE.Server\bin\x64\Debug\net6.0\Microsoft.EntityFrameworkCore.dll</HintPath>
+			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\Microsoft.EntityFrameworkCore.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
 	</ItemGroup>
