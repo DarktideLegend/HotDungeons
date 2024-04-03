@@ -1,4 +1,5 @@
-﻿using ACE.Entity;
+﻿using ACE.Adapter.Enum;
+using ACE.Entity;
 using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
 using ACE.Server.Entity;
@@ -415,6 +416,193 @@ namespace HotDungeons
             }
             __result = true;
             return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(WorldObject), "HandleCastSpell_PortalRecall", new Type[] { typeof(Spell), typeof(Creature) })]
+        public static bool PreHandleCastSpell_PortalRecall(Spell spell, Creature targetCreature, ref WorldObject __instance)
+        {
+            var player = __instance as Player;
+
+            if (player != null && player.IsOlthoiPlayer)
+            {
+                player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.OlthoiCanOnlyRecallToLifestone));
+                return false;
+            }
+
+            var creature = __instance as Creature;
+
+            var targetPlayer = targetCreature as Player;
+
+            if (player != null && player.PKTimerActive)
+            {
+                player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouHaveBeenInPKBattleTooRecently));
+                return false;
+            }
+
+            PositionType recall = PositionType.Undef;
+            uint? recallDID = null;
+
+            // verify pre-requirements for recalls
+
+            switch ((SpellId)spell.Id)
+            {
+                case SpellId.PortalRecall:       // portal recall
+
+                    if (targetPlayer.LastPortalDID == null)
+                    {
+                        // You must link to a portal to recall it!
+                        targetPlayer.Session.Network.EnqueueSend(new GameEventWeenieError(targetPlayer.Session, WeenieError.YouMustLinkToPortalToRecall));
+                    }
+                    else
+                    {
+                        recall = PositionType.LastPortal;
+                        recallDID = targetPlayer.LastPortalDID;
+                    }
+                    break;
+
+                case SpellId.LifestoneRecall1:   // lifestone recall
+
+                    if (targetPlayer.GetPosition(PositionType.LinkedLifestone) == null)
+                    {
+                        // You must link to a lifestone to recall it!
+                        targetPlayer.Session.Network.EnqueueSend(new GameEventWeenieError(targetPlayer.Session, WeenieError.YouMustLinkToLifestoneToRecall));
+                    }
+                    else
+                        recall = PositionType.LinkedLifestone;
+                    break;
+
+                case SpellId.LifestoneSending1:
+
+                    if (player != null && player.GetPosition(PositionType.Sanctuary) != null)
+                        recall = PositionType.Sanctuary;
+                    else if (targetPlayer != null && targetPlayer.GetPosition(PositionType.Sanctuary) != null)
+                        recall = PositionType.Sanctuary;
+
+                    break;
+
+                case SpellId.PortalTieRecall1:   // primary portal tie recall
+
+                    if (targetPlayer.LinkedPortalOneDID == null)
+                    {
+                        // You must link to a portal to recall it!
+                        targetPlayer.Session.Network.EnqueueSend(new GameEventWeenieError(targetPlayer.Session, WeenieError.YouMustLinkToPortalToRecall));
+                    }
+                    else
+                    {
+                        recall = PositionType.LinkedPortalOne;
+                        recallDID = targetPlayer.LinkedPortalOneDID;
+                    }
+                    break;
+
+                case SpellId.PortalTieRecall2:   // secondary portal tie recall
+
+                    if (targetPlayer.LinkedPortalTwoDID == null)
+                    {
+                        // You must link to a portal to recall it!
+                        targetPlayer.Session.Network.EnqueueSend(new GameEventWeenieError(targetPlayer.Session, WeenieError.YouMustLinkToPortalToRecall));
+                    }
+                    else
+                    {
+                        recall = PositionType.LinkedPortalTwo;
+                        recallDID = targetPlayer.LinkedPortalTwoDID;
+                    }
+                    break;
+            }
+
+            if (recall != PositionType.Undef)
+            {
+                if (recallDID == null)
+                {
+                    // lifestone recall
+                    ActionChain lifestoneRecall = new ActionChain();
+                    lifestoneRecall.AddAction(targetPlayer, () => targetPlayer.DoPreTeleportHide());
+                    lifestoneRecall.AddDelaySeconds(2.0f);  // 2 second delay
+                    lifestoneRecall.AddAction(targetPlayer, () => targetPlayer.TeleToPosition(recall));
+                    lifestoneRecall.EnqueueChain();
+                }
+                else
+                {
+                    // portal recall
+                    var portal = WorldObject.GetPortal(recallDID.Value);
+
+                    if (portal.WeenieClassId == 600004)
+                    {
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
+                        // You cannot recall that portal!
+                        player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouCannotRecallPortal));
+                        return false;
+                    }
+
+                    var newLbRaw = portal.Destination.LandblockId.Raw;
+                    var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
+
+                    if (RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+                    {
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
+                        // You cannot recall that portal!
+                        player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouCannotRecallPortal));
+                        return false;
+                    }
+
+
+                    if (portal == null || portal.NoRecall)
+                    {
+                        // You cannot recall that portal!
+                        player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouCannotRecallPortal));
+                        return false;
+                    }
+
+                    var result = portal.CheckUseRequirements(targetPlayer);
+                    if (!result.Success)
+                    {
+                        if (result.Message != null)
+                            targetPlayer.Session.Network.EnqueueSend(result.Message);
+
+                        return false;
+                    }
+
+                    ActionChain portalRecall = new ActionChain();
+                    portalRecall.AddAction(targetPlayer, () => targetPlayer.DoPreTeleportHide());
+                    portalRecall.AddDelaySeconds(2.0f);  // 2 second delay
+                    portalRecall.AddAction(targetPlayer, () =>
+                    {
+                        var teleportDest = new Position(portal.Destination);
+                        WorldObject.AdjustDungeon(teleportDest);
+
+                        targetPlayer.Teleport(teleportDest);
+                    });
+                    portalRecall.EnqueueChain();
+                }
+            }
+
+            return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Portal), nameof(Portal.CheckUseRequirements), new Type[] { typeof(WorldObject) })]
+        public static bool PreCheckUseRequirements(WorldObject activator, ref Portal __instance, ref ActivationResult __result)
+        {
+            if (!(activator is Player player))
+            {
+                __result = new ActivationResult(false);
+                return false;
+            }
+
+            if (__instance.Name == "Gateway")
+            {
+                var newLbRaw = __instance.Destination.LandblockId.Raw;
+                var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
+
+                if (RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+                {
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"A summoned portal that leads to an Active Rift is not allowable.", ChatMessageType.System));
+                    __result = new ActivationResult(false);
+                    return false;
+                }
+            }
+
+            return true;
         }
 
 

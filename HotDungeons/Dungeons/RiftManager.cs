@@ -101,7 +101,7 @@ namespace HotDungeons.Dungeons
             Rifts = DungeonRepository.Landblocks
                 .Where(kvp => RiftIds.Contains(kvp.Key))
                 .ToDictionary(kvp => kvp.Key, kvp => new Rift(kvp.Value.Landblock, kvp.Value.Name, kvp.Value.Coords));
-            ResetInterval = TimeSpan.FromMinutes(2);
+            ResetInterval = TimeSpan.FromMinutes(10);
             DestructionInterval = TimeSpan.FromMinutes(7);
             MaxBonusXp = bonuxXpModifier;
         }
@@ -115,6 +115,7 @@ namespace HotDungeons.Dungeons
                     ModManager.Log($"Added {lb.Instance} to destruction queue");
                     LandblockManager.AddToDestructionQueue(lb);
                 }
+                DestructionQueue.Clear();
                 LastDestructionCheck = DateTime.UtcNow;
             }
 
@@ -306,29 +307,33 @@ namespace HotDungeons.Dungeons
 
         }
 
-        private static WorldObject? FindRandomCreature(Rift rift)
+        private static List<WorldObject> FindRandomCreatures(Rift rift)
         {
             var lb = rift.LandblockInstance;
 
-            if (lb == null)
-                return null;
-
             var worldObjects = lb.GetAllWorldObjectsForDiagnostics();
+
+            var portal = worldObjects.Where(wo => wo is Portal).FirstOrDefault();
 
             var filteredWorldObjects = worldObjects
                 .Where(wo => wo is Creature && !(wo is Player) && !wo.IsGenerator)
+                .OrderBy(creature => creature, new DistanceComparer(rift.DropPosition))
                 .ToList(); // To prevent multiple enumeration
 
-            var randomIndex = ThreadSafeRandom.Next(0, filteredWorldObjects.Count - 1);
-
-            var wo = filteredWorldObjects[randomIndex];
-
-            return wo;
+            return filteredWorldObjects;
         }
 
-        public static void CreateLinkPortal(Rift rift, Position destination)
+        private class DistanceComparer : IComparer<WorldObject>
         {
-
+            private Position Location;
+            public DistanceComparer(Position location)
+            {
+                Location = location;
+            }
+            public int Compare(WorldObject x, WorldObject y)
+            {
+                return (int)(x.Location.DistanceTo(Location) - y.Location.DistanceTo(Location));
+            }
         }
 
         private static void CreateLinks()
@@ -352,26 +357,47 @@ namespace HotDungeons.Dungeons
 
                 if (rift.Previous != null)
                 {
-                    var wo = FindRandomCreature(rift);
-                    var portal = WorldObjectFactory.CreateNewWorldObject(3000310);
-                    portal.Location = new Position(wo.Location);
-                    portal.Destination = rift.Previous.DropPosition;
-                    portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, $"Portal to ${rift.Previous.Name}");
+                    var creatures = FindRandomCreatures(rift);
 
-                    wo.Destroy();
-                    portal.EnterWorld();
+                    foreach (var wo in creatures)
+                    {
+
+                        var portal = WorldObjectFactory.CreateNewWorldObject(600004);
+                        portal.Name = $"Previous Rift Portal {rift.Previous.Name}";
+                        portal.Location = new Position(wo.Location);
+                        portal.Destination = rift.Previous.DropPosition;
+                        portal.Lifespan = int.MaxValue;
+
+                        var name = "Portal to " +  rift.Previous.Name;
+                        portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, name);
+                        portal.ObjScale *= 0.25f;
+
+                        wo.Destroy();
+                        if (portal.EnterWorld())
+                            break;
+                    }
                 }
 
                 if (rift.Next != null)
                 {
-                    var wo = FindRandomCreature(rift);
-                    var portal = WorldObjectFactory.CreateNewWorldObject(3000310);
-                    portal.Location = new Position(wo.Location);
-                    portal.Destination = rift.Next.DropPosition;
-                    portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, $"Portal to ${rift.Next.Name}");
+                    var creatures = FindRandomCreatures(rift);
 
-                    wo.Destroy();
-                    portal.EnterWorld();
+                    foreach (var wo in creatures)
+                    {
+                        var portal = WorldObjectFactory.CreateNewWorldObject(600004);
+                        portal.Name = $"Next Rift Portal {rift.Previous.Name}";
+                        portal.Location = new Position(wo.Location);
+                        portal.Destination = rift.Next.DropPosition;
+                        portal.Lifespan = int.MaxValue;
+
+                        var name = "Portal to " +  rift.Next.Name;
+                        portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, name);
+                        portal.ObjScale *= 0.25f;
+
+                        wo.Destroy();
+                        if (portal.EnterWorld())
+                            break;
+                    }
                 }
             }
             ModManager.Log("Finished Creating Links!");
