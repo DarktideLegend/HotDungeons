@@ -1,13 +1,17 @@
 ﻿using ACE.Adapter.Enum;
+using ACE.Database;
+using ACE.Database.Models.Auth;
 using ACE.Entity;
 using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
 using ACE.Server.Entity;
 using ACE.Server.Entity.Actions;
+using ACE.Server.Factories;
 using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Physics;
+using ACE.Server.Realms;
 using ACE.Server.WorldObjects;
 using HotDungeons.Dungeons;
 using Iced.Intel.EncoderInternal;
@@ -92,6 +96,11 @@ namespace HotDungeons
             DungeonRepository.Initialize();
             DungeonManager.Initialize(Settings.DungeonCheckInterval, Settings.MaxBonusXp);
             RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp);
+
+            for(var i = 0; i <= 6; i++)
+            {
+                DatabaseManager.World.GetDungeonCreatureWeenieIds((uint)i);
+            }
         }
 
         public void Shutdown()
@@ -408,7 +417,12 @@ namespace HotDungeons
             else
             {
                 if (prevrealm.Realm.Id != __instance.HomeRealm)
-                    __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"You are temporarily leaving your home realm. Some actions may be restricted and your corpse will appear at your hideout if you die.", ChatMessageType.System));
+                {
+                    if (newRealm == RealmManager.ServerBaseRealm && prevrealm.GetDefaultInstanceID(__instance) == __instance.Account.AccountId)
+                        __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have chosen {newRealm.Realm.Name} as your home realm.", ChatMessageType.System));
+                    else
+                        __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"You are temporarily leaving your home realm.", ChatMessageType.System));
+                }
                 else if (newRealm.Realm.Id == __instance.HomeRealm)
                     __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"Returning to home realm.", ChatMessageType.System));
                 else
@@ -428,6 +442,13 @@ namespace HotDungeons
             {
                 player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.OlthoiCanOnlyRecallToLifestone));
                 return false;
+            }
+
+            if (targetCreature is Player)
+            {
+                var recallsDisabled = !targetCreature.RealmRuleset.GetProperty(RealmPropertyBool.HasRecalls);
+                if (recallsDisabled)
+                    return false;
             }
 
             var creature = __instance as Creature;
@@ -512,9 +533,22 @@ namespace HotDungeons
 
             if (recall != PositionType.Undef)
             {
+                var playerLbRaw = targetPlayer.Location.LandblockId.Raw;
+                var playerLb = $"{playerLbRaw:X8}".Substring(0, 4);
+
+                RiftManager.TryGetActiveRift(playerLb, out Rift activeRift);
+                var insideRift = activeRift != null;
+
                 if (recallDID == null)
                 {
                     // lifestone recall
+
+                    if (insideRift)
+                    {
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You cannot cast lifestone recall inside a rift.", ChatMessageType.System));
+                        return false;
+                    }
+
                     ActionChain lifestoneRecall = new ActionChain();
                     lifestoneRecall.AddAction(targetPlayer, () => targetPlayer.DoPreTeleportHide());
                     lifestoneRecall.AddDelaySeconds(2.0f);  // 2 second delay
@@ -524,27 +558,31 @@ namespace HotDungeons
                 else
                 {
                     // portal recall
+
+                    if (insideRift)
+                    {
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You cannot cast portal recall inside a rift.", ChatMessageType.System));
+                        return false;
+                    }
+
                     var portal = WorldObject.GetPortal(recallDID.Value);
 
                     if (portal.WeenieClassId == 600004)
                     {
-                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
                         // You cannot recall that portal!
-                        player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouCannotRecallPortal));
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
                         return false;
                     }
 
                     var newLbRaw = portal.Destination.LandblockId.Raw;
                     var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
 
-                    if (RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+                    if (RiftManager.TryGetActiveRift(nextLb, out Rift _))
                     {
-                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
                         // You cannot recall that portal!
-                        player.Session.Network.EnqueueSend(new GameEventWeenieError(player.Session, WeenieError.YouCannotRecallPortal));
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Active Rifts cannot be recalled to.", ChatMessageType.System));
                         return false;
                     }
-
 
                     if (portal == null || portal.NoRecall)
                     {
@@ -591,20 +629,138 @@ namespace HotDungeons
 
             if (__instance.Name == "Gateway")
             {
+
                 var newLbRaw = __instance.Destination.LandblockId.Raw;
                 var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
 
-                if (RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+                if (RiftManager.TryGetActiveRift(nextLb, out Rift _))
                 {
-                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"A summoned portal that leads to an Active Rift is not allowable.", ChatMessageType.System));
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"A summoned portal that leads to an Active Rift is not allowed.", ChatMessageType.System));
                     __result = new ActivationResult(false);
                     return false;
                 }
+
+                var currentLbRaw = __instance.Location.LandblockId.Raw;
+                var currentLb = $"{newLbRaw:X8}".Substring(0, 4);
+
+                if (RiftManager.TryGetActiveRift(nextLb, out Rift _))
+                {
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"A summoned portal inside an Active Rift is not allowed.", ChatMessageType.System));
+                    __result = new ActivationResult(false);
+                    return false;
+                }
+
             }
 
             return true;
         }
 
+        public static uint GetMonsterTierByLevel(uint level)
+        {
+            uint tier = 0;
+
+            if (level <= 300)
+                tier = 6;
+            if (level <= 220)
+                tier = 5;
+            if (level <= 150)
+                tier = 4;
+            if (level <= 115)
+                tier = 3;
+            if (level <= 100)
+                tier = 2;
+            if (level <= 50)
+                tier = 1;
+            if (level <= 20)
+                tier = 0;
+
+            return tier;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(MutationsManager), nameof(MutationsManager.ProcessWorldObject), new Type[] { typeof(WorldObject), typeof(AppliedRuleset), typeof(bool) })]
+        public static bool PreProcessWorldObject(WorldObject wo, AppliedRuleset ruleset, bool replace, ref WorldObject __result)
+        {
+            if (ruleset.Realm.Id == 1016 && wo.WeenieType == WeenieType.Generic)
+            {
+                var creatureRespawnDuration = ruleset.GetProperty(RealmPropertyFloat.CreatureRespawnDuration);
+                var creatureSpawnRateMultiplier = ruleset.GetProperty(RealmPropertyFloat.CreatureSpawnRateMultiplier);
+
+                if (creatureRespawnDuration > 0)
+                {
+                    wo.RegenerationInterval = (int)((float)creatureRespawnDuration * creatureSpawnRateMultiplier);
+
+                    wo.ReinitializeHeartbeats();
+
+                    if (wo.Biota.PropertiesGenerator != null)
+                    {
+                        // While this may be ugly, it's done for performance reasons.
+                        // Common weenie properties are not cloned into the bota on creation. Instead, the biota references simply point to the weenie collections.
+                        // The problem here is that we want to update one of those common collection properties. If the biota is referencing the weenie collection,
+                        // then we'll end up updating the global weenie (from the cache), instead of just this specific biota.
+                        if (wo.Biota.PropertiesGenerator == wo.Weenie.PropertiesGenerator)
+                        {
+                            wo.Biota.PropertiesGenerator = new List<ACE.Entity.Models.PropertiesGenerator>(wo.Weenie.PropertiesGenerator.Count);
+
+                            foreach (var record in wo.Weenie.PropertiesGenerator)
+                                wo.Biota.PropertiesGenerator.Add(record.Clone());
+                        }
+                    }
+                }
+
+                __result = wo;
+                return false;
+            }
+
+            if (ruleset.Realm.Id == 1016 && wo.WeenieType == ACE.Entity.Enum.WeenieType.Creature && wo.Attackable && !wo.IsGenerator)
+            {
+                var lbRaw = wo.Location.LandblockId.Raw;
+                var lb = $"{lbRaw:X8}".Substring(0, 4);
+
+                if (RiftManager.TryGetActiveRift(lb, out Rift activeRift)) 
+                {
+                    var creator = activeRift.Creator;
+                    if (creator == null)
+                        return true;
+
+                    var randomMob = ThreadSafeRandom.Next(1, 100);
+
+                    if (randomMob <= 25)
+                    {
+                        var tier = GetMonsterTierByLevel((uint)creator.Level);
+                        var monsters = DatabaseManager.World.GetDungeonCreatureWeenieIds((uint)tier);
+                        var random = ThreadSafeRandom.Next(0, monsters.Count - 1);
+                        var wcid = monsters[random];
+                        var creature = WorldObjectFactory.CreateNewWorldObject(wcid);
+                        creature.Location = new Position(wo.Location);
+                        creature.Name = $"Rift {creature.Name}";
+                        wo.Destroy();
+                        __result = creature;
+                        return false;
+                    }
+                    else
+                        return true;
+
+                }
+
+                return true;
+
+            }
+
+            return true;
+        }
+
+        [CommandHandler("active-rifts", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
+        public static void HandleSeasonList(Session session, params string[] paramters)
+        {
+            session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Rift List>", ChatMessageType.System));
+            foreach (var rift in RiftManager.ActiveRifts.Values.ToList())
+            {
+                var at = rift.Coords.Length > 0 ? $"at {rift.Coords}" : "";
+                var message = $"Rift {rift.Name} is active {at}";
+                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
+            }
+        }
 
 
         #endregion

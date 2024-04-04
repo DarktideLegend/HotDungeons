@@ -32,6 +32,8 @@ namespace HotDungeons.Dungeons
 
         public bool Linked = false;
 
+        public Player Creator;
+
         public uint Instance { get; set; } = 0;
 
         public Rift(string landblock, string name, string coords) : base(landblock, name, coords)
@@ -64,12 +66,13 @@ namespace HotDungeons.Dungeons
     {
         private static readonly string[] RiftIds =
         {
+            "02F0", // hills citadel
             "01AB", // forking trail
             "01CC", // halls of helm
             "01D4", // Bellig Tower
             "01C6", // Hunters Leap
             "01E3", // GlendonWood 
-            "01E5", // Green Mire Grave
+            "01E5", // Green Mire Grave*/
             "0283", // A Dark Lair
             "02C8", // Banderling Conques
         };
@@ -80,7 +83,7 @@ namespace HotDungeons.Dungeons
 
         private static Dictionary<string, Rift> Rifts = new Dictionary<string, Rift>();
 
-        private static Dictionary<string, Rift> ActiveRifts = new Dictionary<string, Rift>();
+        public static Dictionary<string, Rift> ActiveRifts = new Dictionary<string, Rift>();
 
         private static Dictionary<string, Rift> LastActive = new Dictionary<string, Rift>();
 
@@ -101,7 +104,7 @@ namespace HotDungeons.Dungeons
             Rifts = DungeonRepository.Landblocks
                 .Where(kvp => RiftIds.Contains(kvp.Key))
                 .ToDictionary(kvp => kvp.Key, kvp => new Rift(kvp.Value.Landblock, kvp.Value.Name, kvp.Value.Coords));
-            ResetInterval = TimeSpan.FromMinutes(10);
+            ResetInterval = TimeSpan.FromMinutes(interval);
             DestructionInterval = TimeSpan.FromMinutes(7);
             MaxBonusXp = bonuxXpModifier;
         }
@@ -287,6 +290,7 @@ namespace HotDungeons.Dungeons
                 rift.Instance = instance;
                 rift.LandblockInstance = ephemeralRealm;
                 rift.ReadyForLinks = true;
+                rift.Creator = creator;
 
                 ModManager.Log($"Creating Rift instance for {rift.Name} - {instance}");
 
@@ -363,7 +367,7 @@ namespace HotDungeons.Dungeons
                     {
 
                         var portal = WorldObjectFactory.CreateNewWorldObject(600004);
-                        portal.Name = $"Previous Rift Portal {rift.Previous.Name}";
+                        portal.Name = $"Rift Portal {rift.Previous.Name}";
                         portal.Location = new Position(wo.Location);
                         portal.Destination = rift.Previous.DropPosition;
                         portal.Lifespan = int.MaxValue;
@@ -385,7 +389,7 @@ namespace HotDungeons.Dungeons
                     foreach (var wo in creatures)
                     {
                         var portal = WorldObjectFactory.CreateNewWorldObject(600004);
-                        portal.Name = $"Next Rift Portal {rift.Previous.Name}";
+                        portal.Name = $"Rift Portal {rift.Next.Name}";
                         portal.Location = new Position(wo.Location);
                         portal.Destination = rift.Next.DropPosition;
                         portal.Lifespan = int.MaxValue;
