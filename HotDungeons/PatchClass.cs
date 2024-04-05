@@ -779,7 +779,7 @@ namespace HotDungeons
                 var message = $"Rift {rift.Name} is active {at}";
                 session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
             }
-            session.Network.EnqueueSend(new GameMessageSystemChat($"\n{RiftManager.FormatTimeRemaining()}", ChatMessageType.System));
+            session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {RiftManager.FormatTimeRemaining()}", ChatMessageType.System));
         }
 
         [CommandHandler("hot-dungeons", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
@@ -792,7 +792,7 @@ namespace HotDungeons
                 var at = dungeon.Coords.Length > 0 ? $"at {dungeon.Coords}" : "";
                 var message = $"Rift {dungeon.Name} is active {at}";
                 session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{DungeonManager.FormatTimeRemaining()}", ChatMessageType.System));
+                session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {DungeonManager.FormatTimeRemaining()}", ChatMessageType.System));
 
             } else
                 session.Network.EnqueueSend(new GameMessageSystemChat($"\nNo Hotspots at this time", ChatMessageType.System));
