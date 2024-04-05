@@ -47,6 +47,10 @@ namespace HotDungeons.Dungeons
 
         private static DateTime LastElectorCheck = DateTime.MinValue;
 
+        private static TimeSpan TimeRemaining => (LastElectorCheck + ElectorInterval) - DateTime.UtcNow;
+
+        private static bool ProcessingTick = false;
+
         public static void Initialize(uint interval, float bonuxXpModifier)
         {
             ElectorInterval = TimeSpan.FromMinutes(interval);
@@ -58,6 +62,7 @@ namespace HotDungeons.Dungeons
         {
             if (LastElectorCheck + ElectorInterval <= DateTime.UtcNow)
             {
+                ProcessingTick = true;
                 LastElectorCheck = DateTime.UtcNow;
 
                 lock (lockObject)
@@ -94,6 +99,8 @@ namespace HotDungeons.Dungeons
                         CurrentHotSpot = null;
                     }
                 }
+
+                ProcessingTick = false;
             }
         }
 
@@ -132,28 +139,53 @@ namespace HotDungeons.Dungeons
 
         internal static void ProcessCreaturesDeath(string currentLb, int xpOverride)
         {
+            if (ProcessingTick)
+                return;
+
             if (RiftManager.HasRift(currentLb))
                 return;
 
             if (DungeonRepository.Landblocks.TryGetValue(currentLb, out DungeonLandblock currentDungeon))
             {
                 if (CurrentHotSpot == null)
+                {
+                    var newDungeon = new Dungeon(currentDungeon.Landblock, currentDungeon.Name, currentDungeon.Coords);
+                    CurrentHotSpot = newDungeon;
+                    CurrentHotSpot.BonuxXp = ThreadSafeRandom.Next(1.5f, MaxBonusXp);
+                    PotentialHotspotCandidate.Clear();
+                    var at = newDungeon.Coords.Length > 0 ? $"at {newDungeon.Coords}" : "";
+                    var message = $"{newDungeon.Name} {at} has been very active, this dungeon has been boosted with {newDungeon.BonuxXp.ToString("0.00")}x xp for the next hour!";
+                    ModManager.Log(message);
+                    PlayerManager.BroadcastToAll(new GameMessageSystemChat(message, ChatMessageType.WorldBroadcast));
                     return;
+                }
 
                 if (CurrentHotSpot.Name == currentDungeon.Name)
                     return;
 
-                lock (lockObject)
+                if (!PotentialHotspotCandidate.TryGetValue(currentLb, out Dungeon dungeon))
                 {
+                    var newDungeon = new Dungeon(currentDungeon.Landblock, currentDungeon.Name, currentDungeon.Coords);
+                    newDungeon.AddTotalXp(xpOverride);
+                    PotentialHotspotCandidate.TryAdd(currentLb, newDungeon);
+                } else 
+                    dungeon.AddTotalXp(xpOverride);    
+            }
+        }
 
-                    if (!PotentialHotspotCandidate.TryGetValue(currentLb, out Dungeon dungeon))
-                    {
-                        var newDungeon = new Dungeon(currentDungeon.Landblock, currentDungeon.Name, currentDungeon.Coords);
-                        newDungeon.AddTotalXp(xpOverride);
-                        PotentialHotspotCandidate.TryAdd(currentLb, newDungeon);
-                    } else 
-                        dungeon.AddTotalXp(xpOverride);    
-                }
+        public static string FormatTimeRemaining()
+        {
+            if (TimeRemaining.TotalSeconds < 1)
+            {
+                return "less than a second";
+            }
+            else if (TimeRemaining.TotalMinutes < 1)
+            {
+                return $"{TimeRemaining.Seconds} seconds";
+            }
+            else
+            {
+                return $"{TimeRemaining.Minutes} minutes and {TimeRemaining.Seconds} seconds";
             }
         }
     }

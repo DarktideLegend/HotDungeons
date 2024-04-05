@@ -99,6 +99,9 @@ namespace HotDungeons.Dungeons
 
         private static DateTime LastDestructionCheck = DateTime.MinValue;
 
+        private static TimeSpan TimeRemaining => (LastResetCheck + ResetInterval) - DateTime.UtcNow;
+
+
         public static void Initialize(uint interval, float bonuxXpModifier)
         {
             Rifts = DungeonRepository.Landblocks
@@ -406,6 +409,23 @@ namespace HotDungeons.Dungeons
             }
             ModManager.Log("Finished Creating Links!");
         }
+        public static string FormatTimeRemaining()
+        {
+            if (TimeRemaining.TotalSeconds < 1)
+            {
+                return "less than a second";
+            }
+            else if (TimeRemaining.TotalMinutes < 1)
+            {
+                return $"{TimeRemaining.Seconds} seconds";
+            }
+            else
+            {
+                return $"{TimeRemaining.Minutes} minutes and {TimeRemaining.Seconds} seconds";
+            }
+        }
     }
+
+
 
 }

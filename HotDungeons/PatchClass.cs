@@ -197,13 +197,44 @@ namespace HotDungeons
         }
 
         [HarmonyPrefix]
-        [HarmonyPatch(typeof(LandblockManager), "TickMultiThreadedWork")]
-        public static bool PreTickMultiThreadedWork()
+        [HarmonyPatch(typeof(HouseManager), nameof(HouseManager.Tick))]
+        public static bool PreTick()
         {
+            if (HouseManager.updateHouseManagerRateLimiter.GetSecondsToWaitBeforeNextEvent() > 0)
+                return false;
+
+            HouseManager.updateHouseManagerRateLimiter.RegisterEvent();
+
+            //log.Info($"HouseManager.Tick({RentQueue.Count})");
+
+            var nextEntry = HouseManager.RentQueue.FirstOrDefault();
+
+            if (nextEntry == null)
+                return false;
+
+            var currentTime = DateTime.UtcNow;
+
+            while (currentTime > nextEntry.RentDue)
+            {
+                HouseManager.RentQueue.Remove(nextEntry);
+
+                HouseManager.ProcessRent(nextEntry);
+
+                nextEntry = HouseManager.RentQueue.FirstOrDefault();
+
+                if (nextEntry == null)
+                    return false;
+
+                currentTime = DateTime.UtcNow;
+            }
+
             DungeonManager.Tick();
+
             RiftManager.Tick();
-            return true;
+
+            return false;
         }
+
 
         [HarmonyPrefix]
         [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
@@ -235,7 +266,7 @@ namespace HotDungeons
 
                 var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
 
-                if (__instance.CurrentLandblock != null)
+                if (__instance.CurrentLandblock != null && __instance.XpOverride != null)
                     DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
 
                 var xp = (double)(__instance.XpOverride ?? 0);
@@ -256,18 +287,6 @@ namespace HotDungeons
             }
 
             return false;
-        }
-
-        [HarmonyPostfix]
-        [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
-        public static void PostOnDeath_GrantXP(ref Creature __instance)
-        {
-            if (__instance.CurrentLandblock != null)
-            {
-                var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
-
-                DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
-            }
         }
 
         [HarmonyPrefix]
@@ -751,7 +770,7 @@ namespace HotDungeons
         }
 
         [CommandHandler("active-rifts", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
-        public static void HandleSeasonList(Session session, params string[] paramters)
+        public static void HandleCheckRifts(Session session, params string[] paramters)
         {
             session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Rift List>", ChatMessageType.System));
             foreach (var rift in RiftManager.ActiveRifts.Values.ToList())
@@ -760,6 +779,24 @@ namespace HotDungeons
                 var message = $"Rift {rift.Name} is active {at}";
                 session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
             }
+            session.Network.EnqueueSend(new GameMessageSystemChat($"\n{RiftManager.FormatTimeRemaining()}", ChatMessageType.System));
+        }
+
+        [CommandHandler("hot-dungeons", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
+        public static void HandleCheckDungeons(Session session, params string[] paramters)
+        {
+            session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Dungeon List>", ChatMessageType.System));
+            var dungeon = DungeonManager.CurrentHotSpot;
+            if (dungeon != null)
+            {
+                var at = dungeon.Coords.Length > 0 ? $"at {dungeon.Coords}" : "";
+                var message = $"Rift {dungeon.Name} is active {at}";
+                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
+                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{DungeonManager.FormatTimeRemaining()}", ChatMessageType.System));
+
+            } else
+                session.Network.EnqueueSend(new GameMessageSystemChat($"\nNo Hotspots at this time", ChatMessageType.System));
+
         }
 
 
