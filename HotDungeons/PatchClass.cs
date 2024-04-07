@@ -94,8 +94,7 @@ namespace HotDungeons
             Mod.State = ModState.Running;
 
             DungeonRepository.Initialize();
-            DungeonManager.Initialize(Settings.DungeonCheckInterval, Settings.MaxBonusXp);
-            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp);
+            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp, 6);
 
             for(var i = 0; i <= 6; i++)
             {
@@ -136,10 +135,6 @@ namespace HotDungeons
                         if (RiftManager.HasActiveRift(currentLb))
                             RiftManager.AddRiftPlayer(currentLb, player);
 
-                        if (DungeonManager.HasDungeon(currentLb))
-                            DungeonManager.AddDungeonPlayer(currentLb, player);
-
-
                     }
                     else if (kvp.Value is Creature creature)
                         __instance.sortedCreaturesByNextTick.AddLast(creature);
@@ -169,9 +164,6 @@ namespace HotDungeons
                             if (RiftManager.HasActiveRift(currentLb))
                                 RiftManager.RemoveRiftPlayer(currentLb, player);
 
-                            if (DungeonManager.HasDungeon(currentLb))
-                                DungeonManager.RemoveDungeonPlayer(currentLb, player);
-
                         }
                         else if (wo is Creature creature)
                             __instance.sortedCreaturesByNextTick.Remove(creature);
@@ -200,8 +192,6 @@ namespace HotDungeons
         [HarmonyPatch(typeof(HouseManager), nameof(HouseManager.Tick))]
         public static bool PreTick()
         {
-            DungeonManager.Tick();
-
             RiftManager.Tick();
 
             if (HouseManager.updateHouseManagerRateLimiter.GetSecondsToWaitBeforeNextEvent() > 0)
@@ -268,13 +258,10 @@ namespace HotDungeons
 
                     var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
 
-                    if (__instance.CurrentLandblock != null && __instance.XpOverride != null)
-                        DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
+                    if (__instance.CurrentLandblock != null)
+                        TarManager.ProcessCreaturesDeath(currentLb, __instance.CurrentLandblock, playerDamager);
 
                     var xp = (double)(__instance.XpOverride ?? 0);
-
-                    if (DungeonManager.CurrentHotSpot?.Landblock == currentLb)
-                        xp *= DungeonManager.CurrentHotSpot.BonuxXp;
 
                     var totalXP = (xp) * damagePercent;
 
@@ -305,14 +292,6 @@ namespace HotDungeons
 
             if (!RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
                 return true;
-
-            if (activeRift.Instance == 0)
-                RiftManager.CreateRiftInstance(__instance, _newPosition, activeRift);
-
-            var currentLbRaw = __instance.Location.LandblockId.Raw;
-            var currentLb = $"{currentLbRaw:X8}".Substring(0, 4);
-
-            RiftManager.TryGetActiveRift(currentLb, out Rift currentRift);
 
             var pos = new Position(_newPosition);
             pos.Instance = activeRift.Instance;

@@ -23,23 +23,36 @@ namespace HotDungeons.Commands
             session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {RiftManager.FormatTimeRemaining()}", ChatMessageType.System));
         }
 
-        [CommandHandler("hot-dungeons", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
-        public static void HandleCheckDungeons(Session session, params string[] paramters)
+        [CommandHandler("tar", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
+        public static void HandleCheckTar(Session session, params string[] paramters)
         {
-            session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Dungeon List>", ChatMessageType.System));
-            var dungeon = DungeonManager.CurrentHotSpot;
-            if (dungeon != null)
+            var player = session.Player;
+
+
+            var id = player.Location.LandblockId.Raw;
+            var lb = $"{id:X8}".Substring(0, 4);
+
+
+            var tarLandblock = TarManager.GetTarLandblock(lb);
+
+            if (player != null && tarLandblock != null)
             {
-                var at = dungeon.Coords.Length > 0 ? $"at {dungeon.Coords}" : "";
-                var message = $"Rift {dungeon.Name} is active {at}";
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {DungeonManager.FormatTimeRemaining()}", ChatMessageType.System));
+                if (!tarLandblock.Active)
+                {
+                    
+                    var message = $"This landblock has been deactivated for xp, it will reset in {TarManager.FormatTimeRemaining(tarLandblock)}";
+                    session.Network.EnqueueSend(new GameMessageSystemChat(message, ChatMessageType.System));
+                } else
+                {
+                    var message = $"The current mob kills on this landblock is {tarLandblock.MobKills}, when this landblock reaches {tarLandblock.MaxMobKills}, it will be deactivated and xp cannot be earned from mob kills.";
+                    session.Network.EnqueueSend(new GameMessageSystemChat(message, ChatMessageType.System));
+                }
 
+            } else
+            {
+                var message = $"This landblock hasn't beent hunted.";
+                session.Network.EnqueueSend(new GameMessageSystemChat(message, ChatMessageType.System));
             }
-            else
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\nNo Hotspots at this time", ChatMessageType.System));
-
         }
-
     }
 }

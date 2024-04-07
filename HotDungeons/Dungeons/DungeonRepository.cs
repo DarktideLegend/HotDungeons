@@ -48,7 +48,7 @@ namespace HotDungeons.Dungeons
                         coords = coords.Substring(0, coords.Length - 2);
                     }
 
-                    DungeonLandblock dungeon = new DungeonLandblock(landblock, name, coords);
+                    Entity.DungeonLandblock dungeon = new Entity.DungeonLandblock(landblock, name, coords);
 
                     Landblocks[landblock] = dungeon;
                 }
