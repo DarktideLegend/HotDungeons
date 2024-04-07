@@ -200,6 +200,10 @@ namespace HotDungeons
         [HarmonyPatch(typeof(HouseManager), nameof(HouseManager.Tick))]
         public static bool PreTick()
         {
+            DungeonManager.Tick();
+
+            RiftManager.Tick();
+
             if (HouseManager.updateHouseManagerRateLimiter.GetSecondsToWaitBeforeNextEvent() > 0)
                 return false;
 
@@ -227,10 +231,6 @@ namespace HotDungeons
 
                 currentTime = DateTime.UtcNow;
             }
-
-            DungeonManager.Tick();
-
-            RiftManager.Tick();
 
             return false;
         }
@@ -776,35 +776,85 @@ namespace HotDungeons
             return true;
         }
 
-        [CommandHandler("active-rifts", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
-        public static void HandleCheckRifts(Session session, params string[] paramters)
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Creature), "GenerateTreasure", new Type[] { typeof(DamageHistoryInfo), typeof(Corpse) })]
+        public static bool PreGenerateTreasure(DamageHistoryInfo killer, Corpse corpse, ref Creature __instance, ref List<WorldObject> __result)
         {
-            session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Rift List>", ChatMessageType.System));
-            foreach (var rift in RiftManager.ActiveRifts.Values.ToList())
+            var lbRaw = __instance.Location.LandblockId.Raw;
+            var lb = $"{lbRaw:X8}".Substring(0, 4);
+            var isRift = RiftManager.HasActiveRift(lb);
+
+            var droppedItems = new List<WorldObject>();
+
+            // create death treasure from loot generation factory
+            if (__instance.DeathTreasure != null)
             {
-                var at = rift.Coords.Length > 0 ? $"at {rift.Coords}" : "";
-                var message = $"Rift {rift.Name} is active {at}";
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
+                List<WorldObject> items = LootGenerationFactory.CreateRandomLootObjects(__instance.DeathTreasure);
+                foreach (WorldObject wo in items)
+                {
+                    wo.LootSpawnOrigin = isRift ? 1 : 0;
+                    if (corpse != null)
+                        corpse.TryAddToInventory(wo);
+                    else
+                        droppedItems.Add(wo);
+
+                    __instance.DoCantripLogging(killer, wo);
+                }
             }
-            session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {RiftManager.FormatTimeRemaining()}", ChatMessageType.System));
-        }
 
-        [CommandHandler("hot-dungeons", AccessLevel.Player, CommandHandlerFlag.None, 0, "Get a list of available rifts.")]
-        public static void HandleCheckDungeons(Session session, params string[] paramters)
-        {
-            session.Network.EnqueueSend(new GameMessageSystemChat($"\n<Active Dungeon List>", ChatMessageType.System));
-            var dungeon = DungeonManager.CurrentHotSpot;
-            if (dungeon != null)
+            // move wielded treasure over, which also should include Wielded objects not marked for destroy on death.
+            // allow server operators to configure this behavior due to errors in createlist post 16py data
+            var dropFlags = PropertyManager.GetBool("creatures_drop_createlist_wield").Item ? DestinationType.WieldTreasure : DestinationType.Treasure;
+
+            var wieldedTreasure = __instance.Inventory.Values.Concat(__instance.EquippedObjects.Values).Where(i => (i.DestinationType & dropFlags) != 0);
+            foreach (var item in wieldedTreasure.ToList())
             {
-                var at = dungeon.Coords.Length > 0 ? $"at {dungeon.Coords}" : "";
-                var message = $"Rift {dungeon.Name} is active {at}";
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\n{message}", ChatMessageType.System));
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\nTime Remaining: {DungeonManager.FormatTimeRemaining()}", ChatMessageType.System));
+                item.LootSpawnOrigin = isRift ? 1 : 0;
+                if (item.Bonded == BondedStatus.Destroy)
+                    continue;
 
-            } else
-                session.Network.EnqueueSend(new GameMessageSystemChat($"\nNo Hotspots at this time", ChatMessageType.System));
+                if (__instance.TryDequipObjectWithBroadcasting(item.Guid, out var wo, out var wieldedLocation))
+                    __instance.EnqueueBroadcast(new GameMessagePublicUpdateInstanceID(item, PropertyInstanceId.Wielder, ObjectGuid.Invalid));
 
+                if (corpse != null)
+                {
+                    corpse.TryAddToInventory(item);
+                    __instance.EnqueueBroadcast(new GameMessagePublicUpdateInstanceID(item, PropertyInstanceId.Container, corpse.Guid), new GameMessagePickupEvent(item));
+                }
+                else
+                    droppedItems.Add(item);
+            }
+
+            // contain and non-wielded treasure create
+            if (__instance.Biota.PropertiesCreateList != null)
+            {
+                var createList = __instance.Biota.PropertiesCreateList.Where(i => (i.DestinationType & DestinationType.Contain) != 0 ||
+                                (i.DestinationType & DestinationType.Treasure) != 0 && (i.DestinationType & DestinationType.Wield) == 0).ToList();
+
+                var selected = Creature.CreateListSelect(createList);
+
+                foreach (var item in selected)
+                {
+                    var wo = WorldObjectFactory.CreateNewWorldObject(item);
+
+                    if (wo != null)
+                    {
+                        wo.LootSpawnOrigin = isRift ? 1 : 0;
+                        if (corpse != null)
+                            corpse.TryAddToInventory(wo);
+                        else
+                            droppedItems.Add(wo);
+                    }
+                }
+            }
+
+            __result = droppedItems;
+            return false;
         }
+
+
+
 
 
         #endregion
