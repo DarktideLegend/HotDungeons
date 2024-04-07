@@ -7,7 +7,7 @@
         // how often to elect a new bonus dungeon (if there is one to elect)
         public uint DungeonCheckInterval { get; set; } = 60;
 
-        public uint RiftCheckInterval { get; set; } = 5;
+        public uint RiftCheckInterval { get; set; } = 60;
 
         public float RiftMaxBonusXp { get; set; } = 4.0f;
 

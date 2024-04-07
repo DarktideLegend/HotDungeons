@@ -240,53 +240,60 @@ namespace HotDungeons
         [HarmonyPatch(typeof(Creature), nameof(Creature.OnDeath_GrantXP))]
         public static bool PreOnDeath_GrantXP(ref Creature __instance)
         {
-            if (__instance is Player && __instance.PlayerKillerStatus == PlayerKillerStatus.PKLite)
-                return false;
-
-            var totalHealth = __instance.DamageHistory.TotalHealth;
-
-            if (totalHealth == 0)
-                return false;
-
-            foreach (var kvp in __instance.DamageHistory.TotalDamage)
+            try
             {
-                var damager = kvp.Value.TryGetAttacker();
+                if (__instance is Player && __instance.PlayerKillerStatus == PlayerKillerStatus.PKLite)
+                    return false;
 
-                var playerDamager = damager as Player;
+                var totalHealth = __instance.DamageHistory.TotalHealth;
 
-                if (playerDamager == null && kvp.Value.PetOwner != null)
-                    playerDamager = kvp.Value.TryGetPetOwner();
+                if (totalHealth == 0)
+                    return false;
 
-                if (playerDamager == null)
-                    continue;
-
-                var totalDamage = kvp.Value.TotalDamage;
-
-                var damagePercent = totalDamage / totalHealth;
-
-                var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
-
-                if (__instance.CurrentLandblock != null && __instance.XpOverride != null)
-                    DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
-
-                var xp = (double)(__instance.XpOverride ?? 0);
-
-                if (DungeonManager.CurrentHotSpot?.Landblock == currentLb)
-                    xp *= DungeonManager.CurrentHotSpot.BonuxXp;
-
-                var totalXP = (xp) * damagePercent;
-
-                playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
-
-                // handle luminance
-                if (__instance.LuminanceAward != null)
+                foreach (var kvp in __instance.DamageHistory.TotalDamage)
                 {
-                    var totalLuminance = (long)Math.Round(__instance.LuminanceAward.Value * damagePercent);
-                    playerDamager.EarnLuminance(totalLuminance, XpType.Kill);
+                    var damager = kvp.Value.TryGetAttacker();
+
+                    var playerDamager = damager as Player;
+
+                    if (playerDamager == null && kvp.Value.PetOwner != null)
+                        playerDamager = kvp.Value.TryGetPetOwner();
+
+                    if (playerDamager == null)
+                        continue;
+
+                    var totalDamage = kvp.Value.TotalDamage;
+
+                    var damagePercent = totalDamage / totalHealth;
+
+                    var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
+
+                    if (__instance.CurrentLandblock != null && __instance.XpOverride != null)
+                        DungeonManager.ProcessCreaturesDeath(currentLb, (int)__instance.XpOverride);
+
+                    var xp = (double)(__instance.XpOverride ?? 0);
+
+                    if (DungeonManager.CurrentHotSpot?.Landblock == currentLb)
+                        xp *= DungeonManager.CurrentHotSpot.BonuxXp;
+
+                    var totalXP = (xp) * damagePercent;
+
+                    playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
+
+                    // handle luminance
+                    if (__instance.LuminanceAward != null)
+                    {
+                        var totalLuminance = (long)Math.Round(__instance.LuminanceAward.Value * damagePercent);
+                        playerDamager.EarnLuminance(totalLuminance, XpType.Kill);
+                    }
                 }
+                return false;
+            } catch (Exception ex) 
+            {
+                ModManager.Log(ex.Message, ModManager.LogLevel.Error);
+                return false;
             }
 
-            return false;
         }
 
         [HarmonyPrefix]
@@ -625,7 +632,7 @@ namespace HotDungeons
                     portalRecall.AddAction(targetPlayer, () =>
                     {
                         var teleportDest = new Position(portal.Destination);
-                        WorldObject.AdjustDungeon(teleportDest);
+                        WorldObject.AdjustDungeon(teleportDest, teleportDest.Instance);
 
                         targetPlayer.Teleport(teleportDest);
                     });

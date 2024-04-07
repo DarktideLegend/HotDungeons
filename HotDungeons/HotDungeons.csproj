@@ -60,6 +60,7 @@
 			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Entity.dll</HintPath>
 			<Private>False</Private>
 		</Reference>
+
 		<Reference Include="ACE.Server">
 			<HintPath>C:\Users\node_\projects\Pourtide\Source\ACE.Server\bin\x64\Debug\net6.0\ACE.Server.dll</HintPath>
 			<Private>False</Private>
