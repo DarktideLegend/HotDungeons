@@ -9,6 +9,8 @@
 
         public uint RiftCheckInterval { get; set; } = 60;
 
+        public uint MaxActiveRifts { get; set; } = 6;
+
         public float RiftMaxBonusXp { get; set; } = 4.0f;
 
         // The max xp modifier amount for an elected dungeon

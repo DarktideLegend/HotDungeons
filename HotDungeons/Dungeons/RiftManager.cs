@@ -90,7 +90,7 @@ namespace HotDungeons.Dungeons
         public static void Initialize(uint interval, float bonuxXpModifier, uint maxActiveRifts)
         {
 
-            ResetInterval = TimeSpan.FromHours(4);
+            ResetInterval = TimeSpan.FromHours(interval);
             MaxBonusXp = bonuxXpModifier;
             MaxActiveRifts = maxActiveRifts;
         }

@@ -95,10 +95,11 @@ namespace HotDungeons
             Mod.State = ModState.Running;
 
             DungeonRepository.Initialize();
-            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp, 6);
+            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp, Settings.MaxActiveRifts);
 
             for(var i = 0; i <= 6; i++)
             {
+                // load cache of mob ids
                 DatabaseManager.World.GetDungeonCreatureWeenieIds((uint)i);
             }
         }
