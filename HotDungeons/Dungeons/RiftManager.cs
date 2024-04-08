@@ -8,6 +8,7 @@ using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Realms;
 using ACE.Server.WorldObjects;
 using HotDungeons.Dungeons.Entity;
+using Microsoft.Cci.Pdb;
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
@@ -25,6 +26,8 @@ namespace HotDungeons.Dungeons
         public Rift? Next = null;
 
         public Rift? Previous = null;
+
+        public List<WorldObject> LinkedPortals = new List<WorldObject>();
 
         public Landblock? LandblockInstance = null;
 
@@ -45,81 +48,55 @@ namespace HotDungeons.Dungeons
 
         public void Close()
         {
-            foreach(var player in Players.Values)
+            foreach (var player in Players.Values)
             {
                 if (player != null)
+                {
                     player.ExitInstance();
+                }
             }
 
+            LandblockInstance.DestroyAllNonPlayerObjects();
             Instance = 0;
             DropPosition = null;
             Next = null;
             Previous = null;
+            LandblockInstance.Permaload = false;
             LandblockInstance = null;
+            LinkedPortals.Clear();
             Players.Clear();
         }
     }
 
-    internal static class RiftManager 
+    internal static class RiftManager
     {
-        private static readonly string[] RiftIds =
-        {
-            "02F0", // hills citadel
-            "01AB", // forking trail
-            "01CC", // halls of helm
-            "01D4", // Bellig Tower
-            "01C6", // Hunters Leap
-            "01E3", // GlendonWood 
-            "01E5", // Green Mire Grave*/
-            "0283", // A Dark Lair
-            "02C8", // Banderling Conques
-        };
-
         private static readonly object lockObject = new object();
 
         private static Dictionary<string, Rift> Rifts = new Dictionary<string, Rift>();
 
-        public static List<Rift> AvailableRiftsForLink = new List<Rift>();
-
         public static Dictionary<string, Rift> ActiveRifts = new Dictionary<string, Rift>();
-
-        private static List<Landblock> DestructionQueue = new List<Landblock>();
 
         private static float MaxBonusXp { get; set; }
 
         private static uint MaxActiveRifts { get; set; }
 
         private static TimeSpan ResetInterval { get; set; }
-        private static TimeSpan DestructionInterval { get; set; }
 
         private static DateTime LastResetCheck = DateTime.MinValue;
 
-        private static DateTime LastDestructionCheck = DateTime.MinValue;
 
         private static TimeSpan TimeRemaining => (LastResetCheck + ResetInterval) - DateTime.UtcNow;
 
         public static void Initialize(uint interval, float bonuxXpModifier, uint maxActiveRifts)
         {
 
-            ResetInterval = TimeSpan.FromMinutes(interval);
-            DestructionInterval = TimeSpan.FromMinutes(7);
+            ResetInterval = TimeSpan.FromHours(4);
             MaxBonusXp = bonuxXpModifier;
             MaxActiveRifts = maxActiveRifts;
         }
 
         public static void Tick()
         {
-            if (LastDestructionCheck + DestructionInterval <= DateTime.UtcNow)
-            {
-                foreach (var lb in  DestructionQueue)
-                {
-                    ModManager.Log($"Added {lb.Instance} to destruction queue");
-                    LandblockManager.AddToDestructionQueue(lb);
-                }
-                DestructionQueue.Clear();
-                LastDestructionCheck = DateTime.UtcNow;
-            }
-
             if (LastResetCheck + ResetInterval <= DateTime.UtcNow)
             {
                 LastResetCheck = DateTime.UtcNow;
@@ -127,83 +104,17 @@ namespace HotDungeons.Dungeons
                 lock (lockObject)
                 {
 
-                    var message = $"Rifts are currently resetting, new rifts will be available shortly";
+                    var message = $"Rifts are currently resetting!";
                     ModManager.Log(message);
                     PlayerManager.BroadcastToAll(new GameMessageSystemChat(message, ChatMessageType.WorldBroadcast));
 
                     foreach (var rift in ActiveRifts)
-                    {
-                        var lb = rift.Value.LandblockInstance;
-
-                        if (lb != null) 
-                            DestructionQueue.Add(lb);
-
                         rift.Value.Close();
-                    }
 
                     ActiveRifts.Clear();
-
-                    //SelectRandomRifts(2);
-
-                    //CreateActiveRifts();
                 }
             }
         }
-
-        /* static void SelectRandomRifts(int count)
-        {
-            if (Rifts.Count < count)
-            {
-                throw new InvalidOperationException("Not enough items in Rifts dictionary.");
-            }
-
-            List<string> keys = Rifts.Keys.Where(k => !LastActive.ContainsKey(k)).ToList();
-            for (int i = 0; i < count; i++)
-            {
-                int index = ThreadSafeRandom.Next(0, keys.Count - 1);
-                string selectedKey = keys[index];
-                var rift = Rifts[selectedKey];
-                ActiveRifts[selectedKey] = rift;
-                keys.RemoveAt(index);
-
-                var at = rift.Coords.Length > 0 ? $"at {rift.Coords}" : "";
-                var message = $"Dungeon {rift.Name} {at} is now an activated Rift";
-                ModManager.Log(message);
-                PlayerManager.BroadcastToAll(new GameMessageSystemChat(message, ChatMessageType.WorldBroadcast));
-            }
-
-            LastActive.Clear();
-        }*/
-
-        /*private static void CreateActiveRifts()
-        {
-            var rifts = ActiveRifts.Values.ToList();
-            var count = rifts.Count;
-            for (var i = 0; i < count; i++)
-            {
-                var current = rifts[i];
-                if (i == 0 && current != null)
-                {
-                    var next = rifts[i + 1];
-                    current.Next = rifts[i + 1];
-                    continue;
-                }
-
-                if (i == count - 1 && current != null)
-                {
-                    current.Previous = rifts[i - 1];
-                    continue;
-                }
-
-                if (current != null)
-                {
-                    current.Previous = rifts[i - 1];
-                    current.Next = rifts[i + 1];
-                }
-            }
-        }*/
-
-
 
         public static void RemoveRiftPlayer(string lb, Player player)
         {
@@ -240,39 +151,33 @@ namespace HotDungeons.Dungeons
 
         public static bool HasActiveRift(string lb)
         {
-            lock (lockObject)
-            {
-                return ActiveRifts.ContainsKey(lb);
-            }
+            return ActiveRifts.ContainsKey(lb);
         }
 
         public static bool TryGetActiveRift(string lb, out Rift activeRift)
         {
-            lock (lockObject)
+            if (ActiveRifts.TryGetValue(lb, out activeRift))
             {
-                if (ActiveRifts.TryGetValue(lb, out activeRift))
-                {
-                    return true;
-                }
-                else
-                {
-                    activeRift = null; 
-                    return false;
-                }
+                return true;
+            }
+            else
+            {
+                activeRift = null;
+                return false;
             }
         }
 
-        public static Rift CreateRiftInstance(Player creator, Position drop, DungeonLandblock dungeon)
+        public static Rift CreateRiftInstance(Player creator, DungeonLandblock dungeon)
         {
             var rules = new List<Realm>()
             {
                 RealmManager.ServerBaseRealm.Realm,
                 RealmManager.GetRealm(1016).Realm // rift ruleset
             };
-            var ephemeralRealm =  RealmManager.GetNewEphemeralLandblock(drop.LandblockId, creator, rules, true);
+            var ephemeralRealm = RealmManager.GetNewEphemeralLandblock(creator.Location.LandblockId, creator, rules, true);
             var instance = ephemeralRealm.Instance;
 
-            var dropPosition = new Position(drop)
+            var dropPosition = new Position(creator.Location)
             {
                 Instance = instance
             };
@@ -315,63 +220,82 @@ namespace HotDungeons.Dungeons
 
         public static string FormatTimeRemaining()
         {
-            if (TimeRemaining.TotalSeconds < 1)
+            TimeSpan timeRemaining = TimeRemaining;
+
+            if (timeRemaining.TotalSeconds < 1)
             {
                 return "less than a second";
             }
-            else if (TimeRemaining.TotalMinutes < 1)
+            else if (timeRemaining.TotalMinutes < 1)
             {
-                return $"{TimeRemaining.Seconds} seconds";
+                return $"{timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
+            }
+            else if (timeRemaining.TotalHours < 1)
+            {
+                return $"{timeRemaining.Minutes} minute{(timeRemaining.Minutes != 1 ? "s" : "")} and {timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
             }
             else
             {
-                return $"{TimeRemaining.Minutes} minutes and {TimeRemaining.Seconds} seconds";
+                return $"{timeRemaining.Hours} hour{(timeRemaining.Hours != 1 ? "s" : "")}, {timeRemaining.Minutes} minute{(timeRemaining.Minutes != 1 ? "s" : "")}, and {timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
             }
         }
 
         internal static bool TryAddRift(string currentLb, Player killer, DungeonLandblock dungeon, out Rift addedRift)
         {
-            addedRift = null; 
+            addedRift = null;
 
 
-            lock (lockObject)
+            if (ActiveRifts.ContainsKey(currentLb))
+                return false;
+
+            if (ActiveRifts.Count >= MaxActiveRifts) return false;
+
+
+            var rift = CreateRiftInstance(killer, dungeon);
+            var rifts = ActiveRifts.Values.ToList();
+
+            var last = rifts.LastOrDefault();
+
+            if (last != null)
             {
-                if (ActiveRifts.Count >= MaxActiveRifts) return false;
-                if (ActiveRifts.ContainsKey(currentLb))
-                    return false;
+                rift.Previous = last;
+                last.Next = rift;
 
-                var drop = new Position(killer.Location);
-
-                var rift = CreateRiftInstance(killer, drop, dungeon);
-                var rifts = ActiveRifts.Values.ToList();
-
-                var last = rifts.LastOrDefault();
-
-                if (last != null)
-                {
-                    rift.Previous = last;
-                    last.Next = rift;
-                    SpawnRiftNodePortals(last);
-                    SpawnRiftNodePortals(rift);
-                }
-
-                ActiveRifts[currentLb] = rift;
-
-                addedRift = rift; 
-
-                return true;
+                _ = SpawnNextAsync(last);
+                _ = SpawnPreviousAsync(rift);
             }
+
+            ActiveRifts[currentLb] = rift;
+
+            addedRift = rift;
+
+            var at = rift.Coords.Length > 0 ? $"at {rift.Coords}" : "";
+            var message = $"Dungeon {rift.Name} {at} is now an activated Rift";
+            ModManager.Log(message);
+            PlayerManager.BroadcastToAll(new GameMessageSystemChat(message, ChatMessageType.WorldBroadcast));
+
+            return true;
         }
 
-        internal static void SpawnRiftNodePortals(Rift rift)
+
+        internal static async Task SpawnPreviousAsync(Rift rift)
         {
+            while (!rift.LandblockInstance.CreateWorldObjectsCompleted)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5));
+            }
+
+            List<WorldObject> creatures;
+
+
+            creatures = FindRandomCreatures(rift);
+
             if (rift.Previous != null)
             {
-                var creatures = FindRandomCreatures(rift);
+                ModManager.Log($"Creatures Count {creatures.Count} in {rift.Name}");
 
                 foreach (var wo in creatures)
                 {
-
                     var portal = WorldObjectFactory.CreateNewWorldObject(600004);
                     portal.Name = $"Rift Portal {rift.Previous.Name}";
                     portal.Location = new Position(wo.Location);
@@ -382,16 +306,32 @@ namespace HotDungeons.Dungeons
                     portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, name);
                     portal.ObjScale *= 0.25f;
 
-                    wo.Destroy();
+                    ModManager.Log($"Attempting to link Portal for previous in {rift.Name}");
                     if (portal.EnterWorld())
-                        break;
+                    {
+                        ModManager.Log($"Added Linked Portal for previous in {rift.Name}");
+                        rift.LinkedPortals.Add(portal);
+                        return;
+                    }
                 }
             }
+        }
+
+        internal static async Task SpawnNextAsync(Rift rift)
+        {
+            while (!rift.LandblockInstance.CreateWorldObjectsCompleted)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(5));
+            }
+
+            List<WorldObject> creatures;
+
+
+            creatures = FindRandomCreatures(rift);
 
             if (rift.Next != null)
             {
-                var creatures = FindRandomCreatures(rift);
-
+                ModManager.Log($"Creatures Count {creatures.Count} in {rift.Name}");
                 foreach (var wo in creatures)
                 {
                     var portal = WorldObjectFactory.CreateNewWorldObject(600004);
@@ -404,9 +344,13 @@ namespace HotDungeons.Dungeons
                     portal.SetProperty(ACE.Entity.Enum.Properties.PropertyString.AppraisalPortalDestination, name);
                     portal.ObjScale *= 0.25f;
 
-                    wo.Destroy();
+                    ModManager.Log($"Attempting to link Portal for next in {rift.Name}");
                     if (portal.EnterWorld())
-                        break;
+                    {
+                        ModManager.Log($"Added Linked Portal for next in {rift.Name}");
+                        rift.LinkedPortals.Add(portal);
+                        return;
+                    }
                 }
             }
         }

@@ -17,6 +17,7 @@ using HotDungeons.Dungeons;
 using Iced.Intel.EncoderInternal;
 using System;
 using static Microsoft.EntityFrameworkCore.Diagnostics.CoreEventId;
+using static System.Text.Json.JsonDocument;
 
 namespace HotDungeons
 {
@@ -232,6 +233,10 @@ namespace HotDungeons
         {
             try
             {
+                // mobs from a rift may be destroyed and not have a landblock assigned to them
+                if (__instance.CurrentLandblock == null)
+                    return false;
+
                 if (__instance is Player && __instance.PlayerKillerStatus == PlayerKillerStatus.PKLite)
                     return false;
 
@@ -258,12 +263,11 @@ namespace HotDungeons
 
                     var currentLb = $"{__instance.CurrentLandblock.Id.Raw:X8}".Substring(0, 4);
 
-                    if (__instance.CurrentLandblock != null)
-                        TarManager.ProcessCreaturesDeath(currentLb, __instance.CurrentLandblock, playerDamager);
-
                     var xp = (double)(__instance.XpOverride ?? 0);
 
-                    var totalXP = (xp) * damagePercent;
+                    TarManager.ProcessCreaturesDeath(currentLb, __instance.CurrentLandblock, playerDamager, out double tarModifier);
+
+                    var totalXP = (xp) * damagePercent * tarModifier;
 
                     playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
 
@@ -278,6 +282,7 @@ namespace HotDungeons
             } catch (Exception ex) 
             {
                 ModManager.Log(ex.Message, ModManager.LogLevel.Error);
+                ModManager.Log(ex.StackTrace, ModManager.LogLevel.Error);
                 return false;
             }
 
@@ -290,18 +295,28 @@ namespace HotDungeons
             var newLbRaw = _newPosition.LandblockId.Raw;
             var nextLb = $"{newLbRaw:X8}".Substring(0, 4);
 
-            if (!RiftManager.TryGetActiveRift(nextLb, out Rift activeRift))
+            var currentLbRaw = __instance.Location.LandblockId.Raw;
+            var currentLb = $"{currentLbRaw:X8}".Substring(0, 4);
+            RiftManager.TryGetActiveRift(currentLb, out Rift currentActiveRift);
+
+            // stamp pre teleport positions for dungeons
+            if (!__instance.Location.IsEphemeralRealm && DungeonRepository.Landblocks.ContainsKey(nextLb))
+            {
+                var stamped = new Position(__instance.Location).InFrontOf(-10.0f);
+                __instance.SetPosition(PositionType.DungeonSurface, stamped);
+            }
+
+            if (!RiftManager.TryGetActiveRift(nextLb, out Rift nextActiveRift))
                 return true;
 
-            var pos = new Position(_newPosition);
-            pos.Instance = activeRift.Instance;
+            var pos = new Position(nextActiveRift.DropPosition);
 
             _newPosition.Instance = pos.Instance;
 
             Position.ParseInstanceID(__instance.Location.Instance, out var isTemporaryRuleset, out ushort _a, out ushort _b);
             if (isTemporaryRuleset)
             {
-                if (!teleportingFromInstance && __instance.ExitInstance())
+                if (!teleportingFromInstance &&  __instance.ExitInstance())
                     return false;
             }
 
@@ -830,6 +845,70 @@ namespace HotDungeons
 
             __result = droppedItems;
             return false;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Player), nameof(Player.ExitInstance))]
+        public static bool PreExitInstance(ref Player __instance, ref bool __result)
+        {
+            var lbRaw = __instance.Location.LandblockId.Raw;
+            var lb = $"{lbRaw:X8}".Substring(0, 4);
+            var isRift = RiftManager.HasActiveRift(lb);
+
+            Position.ParseInstanceID(__instance.Location.Instance, out var isTemporaryRuleset, out ushort newRealmId, out ushort shortInstanceId);
+            if (!isTemporaryRuleset)
+            {
+                __instance.Session.Network.EnqueueSend(new GameMessageSystemChat($"You are not in an instance!", ChatMessageType.System));
+                __result = false;
+                return false;
+            }
+            var loc = __instance.GetPosition(PositionType.EphemeralRealmExitTo);
+
+            if (loc == null || !__instance.ValidatePlayerRealmPosition(loc))
+            {
+                loc = __instance.GetPosition(PositionType.Sanctuary) ?? __instance.GetPosition(PositionType.Home);
+                loc.Instance = Position.InstanceIDFromVars(__instance.HomeRealm, 0, false);
+            }
+
+            if (isRift)
+                loc = __instance.GetPosition(PositionType.DungeonSurface).InFrontOf(-10.0f);
+
+            var player = __instance;
+            WorldManager.ThreadSafeTeleport(player, loc, true, new ActionEventDelegate(() =>
+            {
+                player.SetPosition(PositionType.EphemeralRealmExitTo, null);
+                player.SetPosition(PositionType.EphemeralRealmLastEnteredDrop, null);
+            }));
+            __result = true;
+            return false; ;
+        }
+
+        [HarmonyPrefix]
+        [HarmonyPatch(typeof(Player), nameof(Player.ValidatePlayerRealmPosition), new Type[] { typeof(Position) })]
+        public static bool PreValidatePlayerRealmPosition(Position newPosition, ref Player __instance, ref bool __result)
+        {
+            Position.ParseInstanceID(newPosition.Instance, out var isTemporaryRuleset, out ushort newRealmId, out ushort shortInstanceId);
+            var homerealm = RealmManager.GetRealm(__instance.HomeRealm);
+            var destrealm = RealmManager.GetRealm(newPosition.RealmID);
+
+            if (destrealm == null)
+            {
+                __result = false;
+                return false;
+            }
+
+           var lbRaw = newPosition.LandblockId.Raw;
+            var lb = $"{lbRaw:X8}".Substring(0, 4);
+            var isRift = RiftManager.HasActiveRift(lb);
+
+            if (newPosition.IsEphemeralRealm && !isRift)
+            {
+                __result = false;
+                return false;
+            }
+
+            __result = true;
+            return true;
         }
 
 

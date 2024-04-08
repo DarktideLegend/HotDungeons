@@ -8,8 +8,6 @@ namespace HotDungeons.Dungeons.Entity
 {
     internal class TarLandblock
     {
-        private object Lock = new Object();
-
         // must kill 50 mobs to be added to the 
         public uint MobKills { get; private  set; } = 0;
 
@@ -17,9 +15,21 @@ namespace HotDungeons.Dungeons.Entity
 
         public bool Active { get; private set; } = true;
 
-        private  TimeSpan DeactivateInterval { get; set; } = TimeSpan.FromMinutes(5);
+        public double TarXpModifier
+        {
+            get
+            {
+                // Calculate TarXpModifier based on the ratio of MobKills to MaxMobKills
+                double ratio = (double)MobKills / MaxMobKills;
+                return Math.Max(0.1, 1.0 - (0.9 * ratio)); // Ensure TarXpModifier is never less than 0.1
+            }
+        }
 
-        private  DateTime LastDeactivateCheck = DateTime.MinValue;
+        private  TimeSpan DeactivateInterval { get; set; } = TimeSpan.FromHours(3);
+
+        public  DateTime LastDeactivateCheck { get; private set; } = DateTime.MinValue;
+
+        public DateTime LastRiftCreation = DateTime.MinValue;
 
         public TimeSpan TimeRemaining => (LastDeactivateCheck + DeactivateInterval) - DateTime.UtcNow;
 
@@ -27,26 +37,18 @@ namespace HotDungeons.Dungeons.Entity
         {
             if (!Active && TimeRemaining.TotalMilliseconds <= 0)
             {
-                lock (Lock)
-                {
-                    Active = true;
-                    MobKills = 1;
-                    return;
-                }
-
+                Active = true;
+                MobKills = 1;
+                return;
             } 
 
             if (Active)
             {
-                lock (Lock)
+                if (++MobKills >= MaxMobKills)
                 {
-                    if (++MobKills >= MaxMobKills)
-                    {
-                        LastDeactivateCheck = DateTime.UtcNow;
-                        Active = false;
-                    }
+                    LastDeactivateCheck = DateTime.UtcNow;
+                    Active = false;
                 }
-
             }
         }
     }

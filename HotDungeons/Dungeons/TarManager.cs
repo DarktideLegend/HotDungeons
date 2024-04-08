@@ -1,4 +1,5 @@
-﻿using ACE.Server.Managers;
+﻿using ACE.Entity;
+using ACE.Server.Managers;
 using ACE.Server.Network.GameMessages.Messages;
 using HotDungeons.Dungeons.Entity;
 using System;
@@ -19,46 +20,73 @@ namespace HotDungeons.Dungeons
 
         private static Dictionary<string, TarLandblock> TarLandblocks = new Dictionary<string, TarLandblock>();
 
-        internal static void ProcessCreaturesDeath(string currentLb, Landblock landblock, Player killer)
+        internal static void ProcessCreaturesDeath(string currentLb, Landblock landblock, Player killer, out double returnValue)
         {
+            returnValue = 1.0; // Default value in case no calculation is performed
+
             if (RiftManager.HasActiveRift(currentLb))
                 return;
 
 
-            if (TarLandblocks.TryGetValue(currentLb, out TarLandblock tarLandblock)) 
+            if (TarLandblocks.TryGetValue(currentLb, out TarLandblock tarLandblock))
             {
                 tarLandblock.AddMobKill();
-            } else
+                returnValue = tarLandblock.MobKills; // Assigning the number of mob kills as the return value
+            }
+            else
             {
                 tarLandblock = new TarLandblock();
                 TarLandblocks.Add(currentLb, tarLandblock);
                 tarLandblock.AddMobKill();
+                returnValue = tarLandblock.MobKills; // Assigning the number of mob kills as the return value
             }
+
+            returnValue = tarLandblock.TarXpModifier;
 
             if (!tarLandblock.Active && DungeonRepository.Landblocks.TryGetValue(currentLb, out DungeonLandblock dungeon))
             {
-                if(RiftManager.TryAddRift(currentLb, killer, dungeon, out Rift rift))
+                var lastCreation = tarLandblock.LastRiftCreation;
+                var diff = DateTime.UtcNow - lastCreation;
+                if (diff.TotalHours < 6)
+                    return;
+
+                if (RiftManager.TryAddRift(currentLb, killer, dungeon, out Rift rift))
                 {
-                    WorldManager.ThreadSafeTeleport(killer, rift.DropPosition, false);
+                    var objects = landblock.GetAllWorldObjectsForDiagnostics();
+                    var players = objects.Where(wo => wo is Player).ToList();
+
+                    foreach (var player in players)
+                    {
+                        if (player != null)
+                        {
+                            ModManager.Log(player.Location.ToString());
+                            var newPosition = new Position(player.GetPosition(ACE.Entity.Enum.Properties.PositionType.DungeonSurface)).InFrontOf(-10.0f); ;
+                            WorldManager.ThreadSafeTeleport(player as Player, newPosition, false);
+                        }
+                    }
+
+                    tarLandblock.LastRiftCreation = DateTime.UtcNow;
                 }
             }
-
-
         }
 
-        public static string FormatTimeRemaining(TarLandblock tarlandblock)
+        public static string FormatTimeRemaining(TarLandblock tarLandblock)
         {
-            if (tarlandblock.TimeRemaining.TotalSeconds < 1)
+            if (tarLandblock.TimeRemaining.TotalSeconds < 1)
             {
                 return "less than a second";
             }
-            else if (tarlandblock.TimeRemaining.TotalMinutes < 1)
+            else if (tarLandblock.TimeRemaining.TotalMinutes < 1)
             {
-                return $"{tarlandblock.TimeRemaining.Seconds} seconds";
+                return $"{tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
+            }
+            else if (tarLandblock.TimeRemaining.TotalHours < 1)
+            {
+                return $"{tarLandblock.TimeRemaining.Minutes} minute{(tarLandblock.TimeRemaining.Minutes != 1 ? "s" : "")} and {tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
             }
             else
             {
-                return $"{tarlandblock.TimeRemaining.Minutes} minutes and {tarlandblock.TimeRemaining.Seconds} seconds";
+                return $"{tarLandblock.TimeRemaining.Hours} hour{(tarLandblock.TimeRemaining.Hours != 1 ? "s" : "")}, {tarLandblock.TimeRemaining.Minutes} minute{(tarLandblock.TimeRemaining.Minutes != 1 ? "s" : "")}, and {tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
             }
         }
 
