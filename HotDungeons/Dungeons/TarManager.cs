@@ -45,9 +45,8 @@ namespace HotDungeons.Dungeons
 
             if (!tarLandblock.Active && DungeonRepository.Landblocks.TryGetValue(currentLb, out DungeonLandblock dungeon))
             {
-                var lastCreation = tarLandblock.LastRiftCreation;
-                var diff = DateTime.UtcNow - lastCreation;
-                if (diff.TotalHours < 6)
+
+                if (tarLandblock.RiftTimeRemaining.TotalMilliseconds > 0)
                     return;
 
                 if (RiftManager.TryAddRift(currentLb, killer, dungeon, out Rift rift))
@@ -65,31 +64,30 @@ namespace HotDungeons.Dungeons
                         }
                     }
 
-                    tarLandblock.LastRiftCreation = DateTime.UtcNow;
+                    tarLandblock.LastRiftActivateCheck = DateTime.UtcNow;
                 }
             }
         }
 
-        public static string FormatTimeRemaining(TarLandblock tarLandblock)
+        public static string FormatTimeRemaining(TimeSpan timeRemaining)
         {
-            if (tarLandblock.TimeRemaining.TotalSeconds < 1)
+            if (timeRemaining.TotalSeconds < 1)
             {
                 return "less than a second";
             }
-            else if (tarLandblock.TimeRemaining.TotalMinutes < 1)
+            else if (timeRemaining.TotalMinutes < 1)
             {
-                return $"{tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
+                return $"{timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
             }
-            else if (tarLandblock.TimeRemaining.TotalHours < 1)
+            else if (timeRemaining.TotalHours < 1)
             {
-                return $"{tarLandblock.TimeRemaining.Minutes} minute{(tarLandblock.TimeRemaining.Minutes != 1 ? "s" : "")} and {tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
+                return $"{timeRemaining.Minutes} minute{(timeRemaining.Minutes != 1 ? "s" : "")} and {timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
             }
             else
             {
-                return $"{tarLandblock.TimeRemaining.Hours} hour{(tarLandblock.TimeRemaining.Hours != 1 ? "s" : "")}, {tarLandblock.TimeRemaining.Minutes} minute{(tarLandblock.TimeRemaining.Minutes != 1 ? "s" : "")}, and {tarLandblock.TimeRemaining.Seconds} second{(tarLandblock.TimeRemaining.Seconds != 1 ? "s" : "")}";
+                return $"{timeRemaining.Hours} hour{(timeRemaining.Hours != 1 ? "s" : "")}, {timeRemaining.Minutes} minute{(timeRemaining.Minutes != 1 ? "s" : "")}, and {timeRemaining.Seconds} second{(timeRemaining.Seconds != 1 ? "s" : "")}";
             }
         }
-
         internal static TarLandblock? GetTarLandblock(string lb)
         {
             if (TarLandblocks.TryGetValue(lb, out TarLandblock tarLandblock))

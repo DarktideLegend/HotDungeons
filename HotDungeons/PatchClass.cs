@@ -95,7 +95,7 @@ namespace HotDungeons
             Mod.State = ModState.Running;
 
             DungeonRepository.Initialize();
-            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp, Settings.MaxActiveRifts);
+            RiftManager.Initialize(Settings.RiftCheckInterval, Settings.RiftMaxBonusXp, Settings.MaxActiveRifts, Settings.TurbineChatWebhookGeneral);
 
             for(var i = 0; i <= 6; i++)
             {

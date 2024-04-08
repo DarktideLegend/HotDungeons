@@ -7,11 +7,13 @@
         // how often to elect a new bonus dungeon (if there is one to elect)
         public uint DungeonCheckInterval { get; set; } = 60;
 
-        public uint RiftCheckInterval { get; set; } = 60;
+        public uint RiftCheckInterval { get; set; } = 6;
 
         public uint MaxActiveRifts { get; set; } = 6;
 
         public float RiftMaxBonusXp { get; set; } = 4.0f;
+
+        public string TurbineChatWebhookGeneral { get; set; } = "";
 
         // The max xp modifier amount for an elected dungeon
         public float MaxBonusXp { get; set; } = 4.0f;

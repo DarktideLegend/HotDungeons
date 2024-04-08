@@ -4,9 +4,11 @@ using ACE.Entity.Models;
 using ACE.Server.Entity.Actions;
 using ACE.Server.Factories;
 using ACE.Server.Managers;
+using ACE.Server.Network;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Realms;
 using ACE.Server.WorldObjects;
+using DiscordTurbineChat;
 using HotDungeons.Dungeons.Entity;
 using Microsoft.Cci.Pdb;
 using System;
@@ -84,14 +86,16 @@ namespace HotDungeons.Dungeons
 
         private static DateTime LastResetCheck = DateTime.MinValue;
 
+        private static string WebhookGeneral { get; set; }
 
         private static TimeSpan TimeRemaining => (LastResetCheck + ResetInterval) - DateTime.UtcNow;
 
-        public static void Initialize(uint interval, float bonuxXpModifier, uint maxActiveRifts)
+        public static void Initialize(uint interval, float bonuxXpModifier, uint maxActiveRifts, string generalWebhook)
         {
 
             ResetInterval = TimeSpan.FromHours(interval);
             MaxBonusXp = bonuxXpModifier;
+            WebhookGeneral = generalWebhook;
             MaxActiveRifts = maxActiveRifts;
         }
 
@@ -273,6 +277,21 @@ namespace HotDungeons.Dungeons
             var message = $"Dungeon {rift.Name} {at} is now an activated Rift";
             ModManager.Log(message);
             PlayerManager.BroadcastToAll(new GameMessageSystemChat(message, ChatMessageType.WorldBroadcast));
+
+
+            try
+            {
+                var channel = ChatType.General;
+                Player sender = null;
+                var formattedMessage = $"[CHAT][{channel.ToString().ToUpper()}] {(sender != null ? sender.Name : "[SYSTEM]")} says on the {channel} channel, \"{message}\"";
+                _ = WebhookRepository.SendWebhookChat(DiscordChatChannel.General, formattedMessage, WebhookGeneral);
+            } catch (Exception ex)
+            {
+                ModManager.Log(ex.StackTrace, ModManager.LogLevel.Error);
+            }
+
+
+
 
             return true;
         }
