@@ -28,9 +28,11 @@ namespace HotDungeons.Dungeons.Entity
 
         public  DateTime LastDeactivateCheck { get; private set; } = DateTime.MinValue;
 
-        public DateTime LastRiftCreation = DateTime.MinValue;
+        private  TimeSpan RiftActivateInterval { get; set; } = TimeSpan.FromHours(8);
+        public  DateTime LastRiftActivateCheck { get; set; } = DateTime.MinValue;
 
         public TimeSpan TimeRemaining => (LastDeactivateCheck + DeactivateInterval) - DateTime.UtcNow;
+        public TimeSpan RiftTimeRemaining => (LastRiftActivateCheck + RiftActivateInterval) - DateTime.UtcNow;
 
         internal void AddMobKill()
         {
