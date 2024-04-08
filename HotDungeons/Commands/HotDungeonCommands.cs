@@ -57,9 +57,13 @@ namespace HotDungeons.Commands
                     session.Network.EnqueueSend(new GameMessageSystemChat(message, ChatMessageType.System));
                 } else
                 {
-                    var message = $"The current tar xp modifier for this landblock is {tarLandblock.TarXpModifier}, it will be resetting in {TarManager.FormatTimeRemaining(tarLandblock)}";
+                    var message = $"The current tar xp modifier for this landblock is {tarLandblock.TarXpModifier}, it will be resetting in {TarManager.FormatTimeRemaining(tarLandblock.TimeRemaining)}";
                     session.Network.EnqueueSend(new GameMessageSystemChat(message, ChatMessageType.System));
                 }
+
+                var msg = $"The current time remaining before a Rift can possibly spawn is {TarManager.FormatTimeRemaining(tarLandblock.RiftTimeRemaining)}";
+                session.Network.EnqueueSend(new GameMessageSystemChat(msg, ChatMessageType.System));
+
 
             } else 
             {
