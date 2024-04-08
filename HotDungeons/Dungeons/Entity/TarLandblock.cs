@@ -11,7 +11,7 @@ namespace HotDungeons.Dungeons.Entity
         // must kill 50 mobs to be added to the 
         public uint MobKills { get; private  set; } = 0;
 
-        public readonly uint MaxMobKills = 20;
+        public readonly uint MaxMobKills = 100;
 
         public bool Active { get; private set; } = true;
 
@@ -19,7 +19,6 @@ namespace HotDungeons.Dungeons.Entity
         {
             get
             {
-                // Calculate TarXpModifier based on the ratio of MobKills to MaxMobKills
                 double ratio = (double)MobKills / MaxMobKills;
                 return Math.Max(0.1, 1.0 - (0.9 * ratio)); // Ensure TarXpModifier is never less than 0.1
             }
