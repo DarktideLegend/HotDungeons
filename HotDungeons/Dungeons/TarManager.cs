@@ -25,7 +25,13 @@ namespace HotDungeons.Dungeons
             returnValue = 1.0; // Default value in case no calculation is performed
 
             if (RiftManager.HasActiveRift(currentLb))
+            {
+                if (killer.Location.IsEphemeralRealm)
+                    return;
+                else
+                    returnValue = 0;
                 return;
+            }
 
 
             if (TarLandblocks.TryGetValue(currentLb, out TarLandblock tarLandblock))
